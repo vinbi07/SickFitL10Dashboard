@@ -55,10 +55,10 @@ Open `http://localhost:3000`.
 - Password gate at `/login` validating against `TEAM_PASSWORD`
 - Route protection via Next.js `proxy.ts` using signed session cookie
 - Hybrid dashboard with:
-	- Scorecard inline actual editing and red alert styling when `actual < goal`
-	- IDS issues priority/status controls and threaded comments
-	- Rocks owner/status tracking
-	- To-Dos completion toggles
+  - Scorecard inline actual editing and red alert styling when `actual < goal`
+  - IDS issues priority/status controls and threaded comments
+  - Rocks owner/status tracking
+  - To-Dos completion toggles
 - Presentation mode slider with 7 L10 agenda segments
 - Persistent header timer that resets to segment defaults
 - Supabase realtime subscriptions for live cross-session sync

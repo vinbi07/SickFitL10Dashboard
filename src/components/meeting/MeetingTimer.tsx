@@ -48,8 +48,12 @@ export function MeetingTimer({ segment }: MeetingTimerProps) {
 
   return (
     <div className="flex items-center gap-2 rounded-lg border border-app-border bg-black px-3 py-2">
-      <span className="text-xs uppercase tracking-[0.12em] text-app-muted">{segment}</span>
-      <span className="font-heading text-lg text-white">{toClock(remainingSeconds)}</span>
+      <span className="text-xs uppercase tracking-[0.12em] text-app-muted">
+        {segment}
+      </span>
+      <span className="font-heading text-lg text-white">
+        {toClock(remainingSeconds)}
+      </span>
       <button
         type="button"
         onClick={() => setIsRunning((value) => !value)}

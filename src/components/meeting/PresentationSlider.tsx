@@ -58,7 +58,9 @@ export function PresentationSlider({
           type="button"
           disabled={currentIndex === AGENDA_SEGMENTS.length - 1}
           onClick={() =>
-            onIndexChange(Math.min(AGENDA_SEGMENTS.length - 1, currentIndex + 1))
+            onIndexChange(
+              Math.min(AGENDA_SEGMENTS.length - 1, currentIndex + 1),
+            )
           }
           className="rounded-lg bg-brand px-3 py-2 text-sm font-semibold text-white disabled:opacity-40"
         >

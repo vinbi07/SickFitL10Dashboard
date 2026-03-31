@@ -120,7 +120,10 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
       .eq("id", id);
   }
 
-  async function toggleScoreStatus(id: string, currentStatus: "On Track" | "Off Track") {
+  async function toggleScoreStatus(
+    id: string,
+    currentStatus: "On Track" | "Off Track",
+  ) {
     const nextStatus = currentStatus === "On Track" ? "Off Track" : "On Track";
 
     await supabase
@@ -159,7 +162,10 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
   async function cycleIssueStatus(id: string, status: IssueStatus) {
     await supabase
       .from("issues")
-      .update({ status: ISSUE_STATUS_CYCLE[status], updated_at: new Date().toISOString() })
+      .update({
+        status: ISSUE_STATUS_CYCLE[status],
+        updated_at: new Date().toISOString(),
+      })
       .eq("id", id);
   }
 
@@ -216,7 +222,10 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
       .eq("id", id);
   }
 
-  async function toggleRockStatus(id: string, currentStatus: "On Track" | "Off Track") {
+  async function toggleRockStatus(
+    id: string,
+    currentStatus: "On Track" | "Off Track",
+  ) {
     const nextStatus = currentStatus === "On Track" ? "Off Track" : "On Track";
 
     await supabase
@@ -291,7 +300,10 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
 
     await supabase
       .from("todos")
-      .update({ task_description: nextTask, updated_at: new Date().toISOString() })
+      .update({
+        task_description: nextTask,
+        updated_at: new Date().toISOString(),
+      })
       .eq("id", id);
   }
 
@@ -368,25 +380,31 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
         <div className="mt-3 space-y-4">
           {scorecardByOwner.map(({ owner, metrics }) => {
             const offTrackCount = metrics.filter(
-              (metric) => metric.actual < metric.goal || metric.status === "Off Track",
+              (metric) =>
+                metric.actual < metric.goal || metric.status === "Off Track",
             ).length;
 
             return (
-              <article key={owner} className="rounded-xl border border-app-border bg-black/70 p-3">
+              <article
+                key={owner}
+                className="rounded-xl border border-app-border bg-black/70 p-3"
+              >
                 <div className="mb-3 flex items-center gap-3">
                   <div className="flex h-8 w-8 items-center justify-center rounded-full border border-app-border text-xs text-white">
                     {OWNER_INITIALS[owner]}
                   </div>
                   <div>
                     <p className="font-heading text-base text-white">{owner}</p>
-                    <p className="text-xs text-app-muted">{OWNER_ROLES[owner]}</p>
+                    <p className="text-xs text-app-muted">
+                      {OWNER_ROLES[owner]}
+                    </p>
                   </div>
                 </div>
 
                 {offTrackCount > 0 ? (
                   <div className="mb-3 rounded-md border border-red-900/60 bg-red-950/60 px-3 py-2 text-xs text-red-200">
-                    {offTrackCount} metric{offTrackCount > 1 ? "s are" : " is"} currently
-                    off track.
+                    {offTrackCount} metric{offTrackCount > 1 ? "s are" : " is"}{" "}
+                    currently off track.
                   </div>
                 ) : null}
 
@@ -410,7 +428,9 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                           min={0}
                           step="0.01"
                           defaultValue={metric.goal}
-                          onBlur={(event) => updateScoreGoal(metric.id, event.target.value)}
+                          onBlur={(event) =>
+                            updateScoreGoal(metric.id, event.target.value)
+                          }
                           className="rounded border border-app-border bg-black px-2 py-1 text-sm text-white outline-none"
                         />
                         <input
@@ -418,14 +438,18 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                           min={0}
                           step="0.01"
                           defaultValue={metric.actual}
-                          onBlur={(event) => updateScoreActual(metric.id, event.target.value)}
+                          onBlur={(event) =>
+                            updateScoreActual(metric.id, event.target.value)
+                          }
                           className={`rounded border bg-black px-2 py-1 text-sm text-white outline-none ${
                             isAlert ? "border-brand" : "border-app-border"
                           }`}
                         />
                         <button
                           type="button"
-                          onClick={() => toggleScoreStatus(metric.id, metric.status)}
+                          onClick={() =>
+                            toggleScoreStatus(metric.id, metric.status)
+                          }
                           className={`rounded px-2 py-1 text-xs font-semibold ${
                             metric.status === "On Track"
                               ? "bg-emerald-700 text-white"
@@ -447,7 +471,9 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                   })}
 
                   {metrics.length === 0 ? (
-                    <p className="text-xs text-app-muted">No metrics yet for {owner}.</p>
+                    <p className="text-xs text-app-muted">
+                      No metrics yet for {owner}.
+                    </p>
                   ) : null}
                 </div>
 
@@ -512,7 +538,9 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
               <div className="flex gap-2">
                 <input
                   defaultValue={rock.title}
-                  onBlur={(event) => updateRockTitle(rock.id, event.target.value)}
+                  onBlur={(event) =>
+                    updateRockTitle(rock.id, event.target.value)
+                  }
                   className="flex-1 rounded border border-app-border bg-app-base px-2 py-1 text-sm text-white"
                 />
                 <select
@@ -554,7 +582,10 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
             <input
               value={rockDraft.title}
               onChange={(event) =>
-                setRockDraft((previous) => ({ ...previous, title: event.target.value }))
+                setRockDraft((previous) => ({
+                  ...previous,
+                  title: event.target.value,
+                }))
               }
               placeholder="Add rock"
               className="min-w-48 flex-1 rounded border border-app-border bg-app-base px-2 py-1 text-sm text-white"
@@ -599,9 +630,13 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
               <div className="flex flex-1 flex-wrap items-center gap-2">
                 <input
                   defaultValue={todo.task_description}
-                  onBlur={(event) => updateTodoTask(todo.id, event.target.value)}
+                  onBlur={(event) =>
+                    updateTodoTask(todo.id, event.target.value)
+                  }
                   className={`min-w-52 flex-1 rounded border border-app-border bg-app-base px-2 py-1 text-sm ${
-                    todo.is_complete ? "text-app-muted line-through" : "text-white"
+                    todo.is_complete
+                      ? "text-app-muted line-through"
+                      : "text-white"
                   }`}
                 />
                 <select
@@ -639,7 +674,10 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
             <input
               value={todoDraft.task}
               onChange={(event) =>
-                setTodoDraft((previous) => ({ ...previous, task: event.target.value }))
+                setTodoDraft((previous) => ({
+                  ...previous,
+                  task: event.target.value,
+                }))
               }
               placeholder="Add to-do"
               className="min-w-52 flex-1 rounded border border-app-border bg-app-base px-2 py-1 text-sm text-white"
@@ -684,7 +722,9 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <input
                   defaultValue={issue.title}
-                  onBlur={(event) => updateIssueTitle(issue.id, event.target.value)}
+                  onBlur={(event) =>
+                    updateIssueTitle(issue.id, event.target.value)
+                  }
                   className="min-w-52 flex-1 rounded border border-app-border bg-app-base px-2 py-1 text-sm text-white"
                 />
                 <div className="flex gap-2">
@@ -702,7 +742,10 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                   <select
                     value={issue.priority}
                     onChange={(event) =>
-                      updateIssuePriority(issue.id, event.target.value as IssuePriority)
+                      updateIssuePriority(
+                        issue.id,
+                        event.target.value as IssuePriority,
+                      )
                     }
                     className="rounded border border-app-border bg-app-base px-2 py-1 text-xs text-white"
                   >
@@ -728,7 +771,9 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
               </div>
               <textarea
                 defaultValue={issue.notes}
-                onBlur={(event) => updateIssueNotes(issue.id, event.target.value)}
+                onBlur={(event) =>
+                  updateIssueNotes(issue.id, event.target.value)
+                }
                 placeholder="Notes / resolution"
                 className="mt-2 min-h-20 w-full rounded border border-app-border bg-app-base px-2 py-1 text-sm text-app-muted"
               />
@@ -778,7 +823,10 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
             <input
               value={issueDraft.title}
               onChange={(event) =>
-                setIssueDraft((previous) => ({ ...previous, title: event.target.value }))
+                setIssueDraft((previous) => ({
+                  ...previous,
+                  title: event.target.value,
+                }))
               }
               placeholder="Add issue"
               className="min-w-52 flex-1 rounded border border-app-border bg-app-base px-2 py-1 text-sm text-white"
@@ -833,7 +881,10 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
           <h3 className="font-heading text-base text-white">{segment}</h3>
           <div className="mt-2 space-y-2">
             {items.map((item) => (
-              <div key={item.id} className="space-y-2 rounded-lg border border-app-border bg-app-base p-2">
+              <div
+                key={item.id}
+                className="space-y-2 rounded-lg border border-app-border bg-app-base p-2"
+              >
                 <textarea
                   defaultValue={item.text}
                   onBlur={(event) =>
@@ -845,7 +896,10 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                   <select
                     value={item.owner}
                     onChange={(event) =>
-                      updateAgendaItemOwner(item.id, event.target.value as Owner)
+                      updateAgendaItemOwner(
+                        item.id,
+                        event.target.value as Owner,
+                      )
                     }
                     className="rounded border border-app-border bg-black px-2 py-1 text-xs text-white"
                   >
@@ -923,7 +977,9 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
     <div className="min-h-screen bg-app-base p-4 md:p-6">
       <header className="mb-4 flex flex-col gap-3 rounded-2xl border border-app-border bg-app-panel p-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <p className="text-xs uppercase tracking-[0.2em] text-app-muted">SickFit</p>
+          <p className="text-xs uppercase tracking-[0.2em] text-app-muted">
+            SickFit
+          </p>
           <h1 className="font-heading text-2xl text-white">L10 Dashboard</h1>
         </div>
 
@@ -936,7 +992,9 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
             type="button"
             onClick={() => setPresentMode((value) => !value)}
             className={`rounded-lg px-3 py-2 text-sm font-semibold ${
-              presentMode ? "bg-brand text-white" : "border border-app-border text-white"
+              presentMode
+                ? "bg-brand text-white"
+                : "border border-app-border text-white"
             }`}
           >
             {presentMode ? "Exit Present" : "Present"}
@@ -961,21 +1019,22 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
           {todosSection()}
         </main>
       ) : (
-        <PresentationSlider currentIndex={segmentIndex} onIndexChange={setSegmentIndex}>
-          {currentSegment === "Segue" && (
-            agendaSection()
-          )}
+        <PresentationSlider
+          currentIndex={segmentIndex}
+          onIndexChange={setSegmentIndex}
+        >
+          {currentSegment === "Segue" && agendaSection()}
           {currentSegment === "Scorecard" && scorecardSection()}
           {currentSegment === "Rocks" && rocksSection()}
-          {currentSegment === "Headlines" && (
-            agendaSection()
-          )}
+          {currentSegment === "Headlines" && agendaSection()}
           {currentSegment === "To-Dos" && todosSection()}
           {currentSegment === "IDS" && issuesSection()}
           {currentSegment === "Conclude" && (
             <section className="rounded-lg border border-app-border bg-black p-8">
               <h2 className="font-heading text-3xl text-white">Conclude</h2>
-              <p className="mt-3 text-app-muted">Recap commitments and finalize outcomes.</p>
+              <p className="mt-3 text-app-muted">
+                Recap commitments and finalize outcomes.
+              </p>
             </section>
           )}
         </PresentationSlider>
