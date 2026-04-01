@@ -350,7 +350,8 @@ function buildDemoKpiInsights(): KpiInsightsData {
   const latestDelta = points[points.length - 1]?.delta ?? 0;
   const avgStep =
     points.length > 1
-      ? (points[points.length - 1].delta - points[0].delta) / (points.length - 1)
+      ? (points[points.length - 1].delta - points[0].delta) /
+        (points.length - 1)
       : 0;
   const nextDeltaPrediction = latestDelta + avgStep;
 
@@ -444,9 +445,8 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
   const [sectionQuery, setSectionQuery] = useState("");
   const [highlightedSectionId, setHighlightedSectionId] =
     useState<DashboardSectionId | null>(null);
-  const [demoKpiInsights, setDemoKpiInsights] = useState<KpiInsightsData | null>(
-    null,
-  );
+  const [demoKpiInsights, setDemoKpiInsights] =
+    useState<KpiInsightsData | null>(null);
   const [saveStatusByKey, setSaveStatusByKey] = useState<
     Record<string, SaveState>
   >({});
@@ -804,7 +804,9 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
 
     return Array.from(grouped.entries()).map(([department, metrics]) => ({
       department,
-      metrics: metrics.sort((a, b) => a.metric_name.localeCompare(b.metric_name)),
+      metrics: metrics.sort((a, b) =>
+        a.metric_name.localeCompare(b.metric_name),
+      ),
     }));
   }, [data.scorecard, ownerRoleByName]);
 
@@ -1207,7 +1209,10 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
   }
 
   async function deleteRock(id: string) {
-    await runMutation(`rock-${id}`, supabase.from("rocks").delete().eq("id", id));
+    await runMutation(
+      `rock-${id}`,
+      supabase.from("rocks").delete().eq("id", id),
+    );
   }
 
   async function archiveRock(id: string) {
@@ -1304,7 +1309,10 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
   }
 
   async function deleteTodo(id: string) {
-    await runMutation(`todo-${id}`, supabase.from("todos").delete().eq("id", id));
+    await runMutation(
+      `todo-${id}`,
+      supabase.from("todos").delete().eq("id", id),
+    );
   }
 
   async function archiveTodo(id: string) {
@@ -1348,7 +1356,10 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
       return;
     }
 
-    await runMutation(`rock-${rockId}`, supabase.from("rocks").delete().eq("id", rockId));
+    await runMutation(
+      `rock-${rockId}`,
+      supabase.from("rocks").delete().eq("id", rockId),
+    );
   }
 
   async function moveTodoToRock(todoId: string) {
@@ -1372,7 +1383,10 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
       return;
     }
 
-    await runMutation(`todo-${todoId}`, supabase.from("todos").delete().eq("id", todoId));
+    await runMutation(
+      `todo-${todoId}`,
+      supabase.from("todos").delete().eq("id", todoId),
+    );
   }
 
   async function dropIntoPriority() {
@@ -2851,7 +2865,8 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
           {completedMeetings.map((meeting) => {
             const started = new Date(meeting.started_at);
             const ended = meeting.ended_at ? new Date(meeting.ended_at) : null;
-            const meetingName = meeting.label?.trim() || `${meeting.meeting_date} Meeting`;
+            const meetingName =
+              meeting.label?.trim() || `${meeting.meeting_date} Meeting`;
             const hasValidTimes =
               Number.isFinite(started.getTime()) &&
               Boolean(ended && Number.isFinite(ended.getTime()));
@@ -2892,7 +2907,8 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                     Start: {hasValidTimes ? started.toLocaleTimeString() : "--"}
                   </span>
                   <span className="rounded border border-app-border px-2 py-1">
-                    End: {hasValidTimes && ended ? ended.toLocaleTimeString() : "--"}
+                    End:{" "}
+                    {hasValidTimes && ended ? ended.toLocaleTimeString() : "--"}
                   </span>
                   <span className="rounded border border-app-border px-2 py-1 text-white">
                     Total: {toDurationLabel(durationSeconds)}
@@ -3308,16 +3324,13 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
     const insights = demoKpiInsights ?? kpiInsights;
     const chartByDepartment = demoKpiInsights
       ? Array.from(
-          demoKpiInsights.scorecardMetrics.reduce(
-            (acc, metric) => {
-              const department = ownerRoleByName.get(metric.owner) ?? "Member";
-              const current = acc.get(department) ?? [];
-              current.push(metric);
-              acc.set(department, current);
-              return acc;
-            },
-            new Map<string, KpiInsightsData["scorecardMetrics"]>(),
-          ),
+          demoKpiInsights.scorecardMetrics.reduce((acc, metric) => {
+            const department = ownerRoleByName.get(metric.owner) ?? "Member";
+            const current = acc.get(department) ?? [];
+            current.push(metric);
+            acc.set(department, current);
+            return acc;
+          }, new Map<string, KpiInsightsData["scorecardMetrics"]>()),
         ).map(([department, metrics]) => ({
           department,
           metrics: [...metrics].sort((a, b) =>
@@ -3334,7 +3347,8 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
               KPI Trends and Predictive Signals
             </h2>
             <p className="mt-1 text-xs text-app-muted">
-              Goal vs actual trend, owner consistency, and active off-track streaks.
+              Goal vs actual trend, owner consistency, and active off-track
+              streaks.
             </p>
           </div>
 
@@ -3385,7 +3399,9 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                     className="w-max max-w-full rounded-lg border border-app-border bg-app-base p-3"
                   >
                     <div className="mb-2 flex items-start justify-between gap-2">
-                      <p className="text-sm font-semibold text-white">{group.department}</p>
+                      <p className="text-sm font-semibold text-white">
+                        {group.department}
+                      </p>
                       <p className="text-[10px] uppercase tracking-[0.08em] text-app-muted">
                         {group.metrics.length} metric
                         {group.metrics.length === 1 ? "" : "s"}
@@ -3396,21 +3412,30 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                         meetsTarget ? "text-emerald-300" : "text-[#e72027]"
                       }`}
                     >
-                      {metGoalCount}/{totalMetrics} metrics meet goal ({Math.round(metGoalPct)}%)
+                      {metGoalCount}/{totalMetrics} metrics meet goal (
+                      {Math.round(metGoalPct)}%)
                     </p>
 
                     <div className="overflow-x-auto pb-1">
                       <div className="min-w-max rounded border border-app-border bg-black/60 p-2">
                         <div className="flex min-h-56 items-end gap-3">
                           {group.metrics.map((metric, metricIndex) => {
-                            const pairMax = Math.max(metric.goal, metric.actual, 1);
+                            const pairMax = Math.max(
+                              metric.goal,
+                              metric.actual,
+                              1,
+                            );
                             const goalHeight = `${(metric.goal / pairMax) * 100}%`;
                             const actualHeight = `${(metric.actual / pairMax) * 100}%`;
                             const isFirstMetric = metricIndex === 0;
-                            const isLastMetric = metricIndex === group.metrics.length - 1;
+                            const isLastMetric =
+                              metricIndex === group.metrics.length - 1;
 
                             return (
-                              <div key={metric.id} className="group relative w-20 pt-12">
+                              <div
+                                key={metric.id}
+                                className="group relative w-20 pt-12"
+                              >
                                 <div
                                   className={`pointer-events-none absolute top-1 z-50 w-44 rounded border border-app-border bg-app-panel px-2 py-1 text-[10px] text-white opacity-0 shadow-lg transition group-hover:opacity-100 ${
                                     isFirstMetric
@@ -3420,10 +3445,18 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                                         : "left-1/2 -translate-x-1/2"
                                   }`}
                                 >
-                                  <p className="font-semibold">{metric.metric_name}</p>
-                                  <p className="text-app-muted">{metric.owner}</p>
-                                  <p className="text-rose-300">Goal: {metric.goal.toFixed(2)}</p>
-                                  <p className="text-emerald-300">Actual: {metric.actual.toFixed(2)}</p>
+                                  <p className="font-semibold">
+                                    {metric.metric_name}
+                                  </p>
+                                  <p className="text-app-muted">
+                                    {metric.owner}
+                                  </p>
+                                  <p className="text-rose-300">
+                                    Goal: {metric.goal.toFixed(2)}
+                                  </p>
+                                  <p className="text-emerald-300">
+                                    Actual: {metric.actual.toFixed(2)}
+                                  </p>
                                 </div>
 
                                 <div className="flex h-36 items-end justify-center gap-1">
@@ -3467,8 +3500,7 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                 Latest delta: {insights.latestDelta.toFixed(1)}
               </span>
               <span className="rounded border border-app-border px-2 py-1 text-app-muted">
-                Next delta prediction:{" "}
-                {insights.nextDeltaPrediction.toFixed(1)}
+                Next delta prediction: {insights.nextDeltaPrediction.toFixed(1)}
               </span>
             </div>
           </div>
@@ -3555,8 +3587,8 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
     const isMissingDurationColumnError = (message?: string) =>
       Boolean(
         message &&
-          message.includes("total_duration_seconds") &&
-          message.toLowerCase().includes("schema cache"),
+        message.includes("total_duration_seconds") &&
+        message.toLowerCase().includes("schema cache"),
       );
 
     const nowIso = new Date().toISOString();
@@ -3610,7 +3642,9 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
       return;
     }
 
-    const startedAt = new Date(Date.now() - elapsedSeconds * 1000).toISOString();
+    const startedAt = new Date(
+      Date.now() - elapsedSeconds * 1000,
+    ).toISOString();
     let insertResult = await supabase
       .from("meetings")
       .insert({
@@ -3643,7 +3677,9 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
     const { data: insertedMeeting, error } = insertResult;
 
     if (error || !insertedMeeting) {
-      window.alert(`Failed to save meeting: ${error?.message ?? "Unknown error"}`);
+      window.alert(
+        `Failed to save meeting: ${error?.message ?? "Unknown error"}`,
+      );
       throw error ?? new Error("Could not create meeting.");
     }
 
@@ -3653,7 +3689,11 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
     }));
   }
 
-  async function updateMeetingLabel(id: string, rawLabel: string, meetingDate: string) {
+  async function updateMeetingLabel(
+    id: string,
+    rawLabel: string,
+    meetingDate: string,
+  ) {
     const nextLabel = rawLabel.trim() || `${meetingDate} Meeting`;
 
     const { error } = await supabase

@@ -84,7 +84,9 @@ export function MeetingTimer({
     }
 
     if (!meetingStarted) {
-      const shouldStart = window.confirm("Would you like to start this meeting timer?");
+      const shouldStart = window.confirm(
+        "Would you like to start this meeting timer?",
+      );
       if (!shouldStart) {
         return;
       }
