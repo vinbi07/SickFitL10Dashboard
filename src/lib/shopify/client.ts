@@ -91,7 +91,7 @@ export async function fetchShopifyOrders() {
     return null;
   }
 
-  let pageInfo: string | null = null;
+  let pageInfo: string | undefined = undefined;
   let pageCount = 0;
 
   while (pageCount < 20) {
