@@ -59,7 +59,8 @@ function getNextPageInfo(linkHeader: string | null) {
   }
 
   try {
-    return new URL(match[1]).searchParams.get("page_info");
+    const result = new URL(match[1]).searchParams.get("page_info");
+    return result ?? undefined;
   } catch {
     return undefined;
   }
