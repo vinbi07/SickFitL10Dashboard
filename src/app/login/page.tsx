@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useActionState } from "react";
 import { loginAction } from "@/app/login/actions";
 
@@ -11,10 +12,17 @@ export default function LoginPage() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-app-base px-4">
       <div className="w-full max-w-md rounded-2xl border border-app-border bg-app-panel p-8 shadow-2xl">
-        <p className="text-xs uppercase tracking-[0.2em] text-app-muted">
-          SickFit
-        </p>
-        <h1 className="mt-2 font-heading text-3xl text-white">L10 Dashboard</h1>
+        <Image
+          src="/SickFit_-_RED.png"
+          alt="SickFit logo"
+          width={58}
+          height={58}
+          priority
+          className="h-14 w-14 object-contain"
+        />
+        <h1 className="mt-2 font-heading text-3xl text-white">
+          Meeting Dashboard
+        </h1>
         <p className="mt-3 text-sm text-app-muted">
           Enter the team password to open the live meeting board.
         </p>

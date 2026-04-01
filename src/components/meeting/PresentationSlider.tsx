@@ -14,6 +14,12 @@ export function PresentationSlider({
   onIndexChange,
   children,
 }: PresentationSliderProps) {
+  const displayLabel = (segment: (typeof AGENDA_SEGMENTS)[number]) => {
+    if (segment === "Rocks") return "What's This Week";
+    if (segment === "To-Dos") return "Backlog / What to Expect";
+    return segment;
+  };
+
   return (
     <section className="rounded-2xl border border-app-border bg-app-panel p-6">
       <div className="mb-6 flex flex-wrap items-center gap-2">
@@ -28,7 +34,7 @@ export function PresentationSlider({
                 : "border-app-border text-app-muted hover:border-white/40"
             }`}
           >
-            {segment}
+            {displayLabel(segment)}
           </button>
         ))}
       </div>

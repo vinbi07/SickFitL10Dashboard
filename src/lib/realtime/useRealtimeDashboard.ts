@@ -6,9 +6,11 @@ import type { RealtimePostgresChangesPayload } from "@supabase/supabase-js";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import type {
   AgendaItemRow,
+  ConcludeItemRow,
   DashboardData,
   IssueCommentRow,
   IssueRow,
+  MeetingLinkRow,
   RockRow,
   ScorecardRow,
   TodoRow,
@@ -22,6 +24,8 @@ type TableRecordMap = {
   todos: TodoRow;
   issue_comments: IssueCommentRow;
   agenda_items: AgendaItemRow;
+  meeting_links: MeetingLinkRow;
+  conclude_items: ConcludeItemRow;
 };
 
 type SetData = Dispatch<SetStateAction<DashboardData>>;
@@ -99,6 +103,24 @@ export function useRealtimeDashboard(setData: SetData) {
       )
       .subscribe();
 
+    const meetingLinksChannel = supabase
+      .channel("meeting-links-live")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "meeting_links" },
+        createHandler(setData, "meeting_links"),
+      )
+      .subscribe();
+
+    const concludeItemsChannel = supabase
+      .channel("conclude-items-live")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "conclude_items" },
+        createHandler(setData, "conclude_items"),
+      )
+      .subscribe();
+
     return () => {
       scorecardChannel.unsubscribe();
       rocksChannel.unsubscribe();
@@ -106,6 +128,8 @@ export function useRealtimeDashboard(setData: SetData) {
       todosChannel.unsubscribe();
       commentsChannel.unsubscribe();
       agendaItemsChannel.unsubscribe();
+      meetingLinksChannel.unsubscribe();
+      concludeItemsChannel.unsubscribe();
     };
   }, [setData]);
 }
@@ -117,4 +141,6 @@ export type DashboardUpdatePayloads = {
   todos: RealtimePostgresChangesPayload<TodoRow>;
   issue_comments: RealtimePostgresChangesPayload<IssueCommentRow>;
   agenda_items: RealtimePostgresChangesPayload<AgendaItemRow>;
+  meeting_links: RealtimePostgresChangesPayload<MeetingLinkRow>;
+  conclude_items: RealtimePostgresChangesPayload<ConcludeItemRow>;
 };

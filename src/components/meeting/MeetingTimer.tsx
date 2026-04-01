@@ -24,6 +24,12 @@ export function MeetingTimer({ segment }: MeetingTimerProps) {
     () => SEGMENT_DURATIONS_MINUTES[segment] * 60,
     [segment],
   );
+  const segmentLabel =
+    segment === "Rocks"
+      ? "What's This Week"
+      : segment === "To-Dos"
+        ? "Backlog / What to Expect"
+        : segment;
 
   const [remainingSeconds, setRemainingSeconds] = useState(initialSeconds);
   const [isRunning, setIsRunning] = useState(false);
@@ -49,7 +55,7 @@ export function MeetingTimer({ segment }: MeetingTimerProps) {
   return (
     <div className="flex items-center gap-2 rounded-lg border border-app-border bg-black px-3 py-2">
       <span className="text-xs uppercase tracking-[0.12em] text-app-muted">
-        {segment}
+        {segmentLabel}
       </span>
       <span className="font-heading text-lg text-white">
         {toClock(remainingSeconds)}
