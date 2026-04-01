@@ -14,26 +14,34 @@ function applyTheme(theme: Theme) {
 }
 
 export function ThemeToggle() {
-  const [theme, setTheme] = useState<Theme>(() => {
-    if (typeof window === "undefined") {
-      return "light";
-    }
-
-    const stored = window.localStorage.getItem(STORAGE_KEY);
-    if (stored === "light" || stored === "dark") {
-      return stored;
-    }
-
-    return window.matchMedia("(prefers-color-scheme: dark)").matches
-      ? "dark"
-      : "light";
-  });
+  const [theme, setTheme] = useState<Theme>("light");
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
+    const stored = window.localStorage.getItem(STORAGE_KEY);
+    const initialTheme: Theme =
+      stored === "light" || stored === "dark"
+        ? stored
+        : window.matchMedia("(prefers-color-scheme: dark)").matches
+          ? "dark"
+          : "light";
+
+    setTheme(initialTheme);
+    applyTheme(initialTheme);
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!mounted) {
+      return;
+    }
     applyTheme(theme);
-  }, [theme]);
+  }, [mounted, theme]);
 
   function handleChange(nextTheme: Theme) {
+    if (!mounted) {
+      return;
+    }
     window.localStorage.setItem(STORAGE_KEY, nextTheme);
     setTheme(nextTheme);
   }

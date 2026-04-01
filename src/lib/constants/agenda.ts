@@ -28,11 +28,13 @@ export type Owner = (typeof OWNERS)[number];
 
 export const OWNER_ROLES: Record<Owner, string> = {
   Joey: "CTO",
-  Rena: "Growth & Digital Ops",
-  Paden: "Operations",
+  Rena: "Digital Brand & Partnership Lead",
+  Paden: "CEO",
   Mike: "Graphic Design",
   Krystle: "Partnerships & Sales",
 };
+
+export const ROLE_OPTIONS = Array.from(new Set(Object.values(OWNER_ROLES)));
 
 export const OWNER_INITIALS: Record<Owner, string> = {
   Joey: "JS",

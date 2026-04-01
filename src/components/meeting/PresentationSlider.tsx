@@ -1,31 +1,31 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
-import { AGENDA_SEGMENTS } from "@/lib/constants/agenda";
+
+interface FormatSegment {
+  id: string;
+  label: string;
+}
 
 interface PresentationSliderProps {
   currentIndex: number;
   onIndexChange: (next: number) => void;
+  segments: FormatSegment[];
   children: React.ReactNode;
 }
 
 export function PresentationSlider({
   currentIndex,
   onIndexChange,
+  segments,
   children,
 }: PresentationSliderProps) {
-  const displayLabel = (segment: (typeof AGENDA_SEGMENTS)[number]) => {
-    if (segment === "Rocks") return "What's This Week";
-    if (segment === "To-Dos") return "Backlog / What to Expect";
-    return segment;
-  };
-
   return (
     <section className="rounded-2xl border border-app-border bg-app-panel p-6">
       <div className="mb-6 flex flex-wrap items-center gap-2">
-        {AGENDA_SEGMENTS.map((segment, index) => (
+        {segments.map((segment, index) => (
           <button
-            key={segment}
+            key={segment.id}
             type="button"
             onClick={() => onIndexChange(index)}
             className={`rounded-full border px-3 py-1 text-xs uppercase tracking-[0.12em] transition ${
@@ -34,7 +34,7 @@ export function PresentationSlider({
                 : "border-app-border text-app-muted hover:border-white/40"
             }`}
           >
-            {displayLabel(segment)}
+            {segment.label}
           </button>
         ))}
       </div>
@@ -62,11 +62,9 @@ export function PresentationSlider({
         </button>
         <button
           type="button"
-          disabled={currentIndex === AGENDA_SEGMENTS.length - 1}
+          disabled={currentIndex === segments.length - 1}
           onClick={() =>
-            onIndexChange(
-              Math.min(AGENDA_SEGMENTS.length - 1, currentIndex + 1),
-            )
+            onIndexChange(Math.min(segments.length - 1, currentIndex + 1))
           }
           className="rounded-lg bg-brand px-3 py-2 text-sm font-semibold text-white disabled:opacity-40"
         >

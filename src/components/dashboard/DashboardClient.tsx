@@ -1,17 +1,11 @@
 "use client";
 
 import Image from "next/image";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { logoutAction } from "@/app/login/actions";
 import { MeetingTimer } from "@/components/meeting/MeetingTimer";
 import { PresentationSlider } from "@/components/meeting/PresentationSlider";
-import {
-  AGENDA_SEGMENTS,
-  OWNERS,
-  OWNER_INITIALS,
-  OWNER_ROLES,
-  type Owner,
-} from "@/lib/constants/agenda";
+import { OWNERS, OWNER_ROLES, ROLE_OPTIONS } from "@/lib/constants/agenda";
 import { useRealtimeDashboard } from "@/lib/realtime/useRealtimeDashboard";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import type { DashboardData, IssuePriority, IssueStatus } from "@/lib/types";
@@ -24,6 +18,102 @@ const ISSUE_STATUS_CYCLE: Record<IssueStatus, IssueStatus> = {
   IDS: "Solved",
   Solved: "Tabled",
   Tabled: "IDS",
+};
+
+const DEFAULT_ACCENT_COLOR = "#ef4444";
+const CORE_SEGMENT_KEYS = [
+  "Segue",
+  "Scorecard",
+  "Rocks",
+  "Headlines",
+  "Links",
+  "To-Dos",
+  "IDS",
+  "Conclude",
+];
+
+const DASHBOARD_SECTIONS = [
+  {
+    id: "kpi-insights",
+    label: "KPI Insights",
+    keywords: ["kpi", "trend", "prediction", "signals"],
+  },
+  {
+    id: "meeting-format",
+    label: "Meeting Format",
+    keywords: ["format", "timer", "segments", "agenda order"],
+  },
+  {
+    id: "agenda",
+    label: "Segue and Headlines",
+    keywords: ["segue", "headlines", "agenda"],
+  },
+  {
+    id: "scorecard",
+    label: "Scorecard",
+    keywords: ["scorecard", "metrics", "on track", "off track"],
+  },
+  {
+    id: "people",
+    label: "People",
+    keywords: ["people", "members", "owners", "roles"],
+  },
+  {
+    id: "issues",
+    label: "IDS Issues",
+    keywords: ["ids", "issues", "solved", "tabled"],
+  },
+  {
+    id: "todo-list",
+    label: "To-Do List",
+    keywords: ["todo", "rocks", "priority", "backlog"],
+  },
+  {
+    id: "todo-timeline",
+    label: "To-Do Timeline",
+    keywords: ["timeline", "due date", "tasks"],
+  },
+  {
+    id: "meeting-links",
+    label: "Meeting Links",
+    keywords: ["links", "youtube", "loom", "slides"],
+  },
+  {
+    id: "conclude",
+    label: "Conclude",
+    keywords: ["conclude", "recap", "decisions", "next actions"],
+  },
+  {
+    id: "past-meetings",
+    label: "Past Meetings",
+    keywords: ["history", "past", "meetings", "duration", "time"],
+  },
+] as const;
+
+type DashboardSectionId = (typeof DASHBOARD_SECTIONS)[number]["id"];
+type SaveState = "idle" | "saving" | "saved" | "error";
+type KpiInsightsData = {
+  points: Array<{
+    label: string;
+    goal: number;
+    actual: number;
+    delta: number;
+  }>;
+  ownerConsistency: Array<{ owner: string; consistency: number }>;
+  offTrackStreaks: Array<{
+    owner: string;
+    metricName: string;
+    current: number;
+  }>;
+  scorecardMetrics: Array<{
+    id: string;
+    owner: string;
+    metric_name: string;
+    goal: number;
+    actual: number;
+  }>;
+  latestDelta: number;
+  nextDeltaPrediction: number;
 };
 
 function normalizeUrl(rawValue: string) {
@@ -94,20 +184,204 @@ function getEmbedUrl(url: string) {
   return null;
 }
 
+function getInitials(fullName: string) {
+  const parts = fullName.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "--";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+}
+
+function normalizeAccentColor(rawValue?: string | null) {
+  const value = (rawValue ?? "").trim();
+  return /^#[0-9a-fA-F]{6}$/.test(value) ? value : DEFAULT_ACCENT_COLOR;
+}
+
+function toDurationLabel(totalSeconds: number) {
+  const safeSeconds = Math.max(0, Math.floor(totalSeconds));
+  const hours = Math.floor(safeSeconds / 3600);
+  const minutes = Math.floor((safeSeconds % 3600) / 60);
+  const seconds = safeSeconds % 60;
+
+  if (hours > 0) {
+    return `${hours}h ${minutes}m ${seconds}s`;
+  }
+
+  return `${minutes}m ${seconds}s`;
+}
+
+function buildDemoKpiInsights(): KpiInsightsData {
+  const owners = Object.entries(OWNER_ROLES);
+  const now = new Date();
+  const points = [
+    { goal: 440, actual: 406 },
+    { goal: 448, actual: 420 },
+    { goal: 452, actual: 435 },
+    { goal: 460, actual: 441 },
+    { goal: 468, actual: 456 },
+    { goal: 476, actual: 470 },
+  ].map((point, index) => {
+    const date = new Date(now);
+    date.setDate(now.getDate() - (5 - index) * 7);
+
+    return {
+      label: date.toLocaleDateString(),
+      goal: point.goal,
+      actual: point.actual,
+      delta: point.actual - point.goal,
+    };
+  });
+
+  const ownerConsistency = owners.map(([owner, role], index) => {
+    const roleBias = role.includes("CEO")
+      ? 0.94
+      : role.includes("CTO")
+        ? 0.9
+        : role.includes("Partnership")
+          ? 0.86
+          : role.includes("Graphic")
+            ? 0.84
+            : 0.88;
+    const consistency = Math.max(0.62, Math.min(0.97, roleBias - index * 0.01));
+
+    return { owner, consistency };
+  });
+
+  const offTrackStreaks = [
+    { owner: "Paden", metricName: "Company EBITDA Margin", current: 2 },
+    { owner: "Joey", metricName: "Platform Uptime", current: 2 },
+    { owner: "Rena", metricName: "Partner-Sourced Revenue", current: 3 },
+    { owner: "Mike", metricName: "Creative Delivery SLA", current: 2 },
+    { owner: "Krystle", metricName: "Qualified Pipeline Coverage", current: 2 },
+  ];
+  const scorecardMetrics = [
+    {
+      id: "demo-cto-uptime",
+      owner: "Joey",
+      metric_name: "Platform Uptime %",
+      goal: 99.95,
+      actual: 99.97,
+    },
+    {
+      id: "demo-cto-deploy-frequency",
+      owner: "Joey",
+      metric_name: "Weekly Deploy Frequency",
+      goal: 12,
+      actual: 13,
+    },
+    {
+      id: "demo-cto-incidents",
+      owner: "Joey",
+      metric_name: "Resolved Incident Count",
+      goal: 8,
+      actual: 8,
+    },
+    {
+      id: "demo-cto-coverage",
+      owner: "Joey",
+      metric_name: "Automated Test Coverage %",
+      goal: 85,
+      actual: 82,
+    },
+    {
+      id: "demo-brand-revenue",
+      owner: "Rena",
+      metric_name: "Partner-Sourced Revenue ($k)",
+      goal: 180,
+      actual: 186,
+    },
+    {
+      id: "demo-brand-engagement",
+      owner: "Rena",
+      metric_name: "Campaign Engagement %",
+      goal: 6.5,
+      actual: 7.1,
+    },
+    {
+      id: "demo-brand-mql",
+      owner: "Rena",
+      metric_name: "Marketing Qualified Leads",
+      goal: 220,
+      actual: 190,
+    },
+    {
+      id: "demo-ceo-ebitda",
+      owner: "Paden",
+      metric_name: "EBITDA Margin %",
+      goal: 24,
+      actual: 21.8,
+    },
+    {
+      id: "demo-ceo-retention",
+      owner: "Paden",
+      metric_name: "Net Revenue Retention %",
+      goal: 108,
+      actual: 111,
+    },
+    {
+      id: "demo-design-sla",
+      owner: "Mike",
+      metric_name: "Creative Delivery SLA %",
+      goal: 96,
+      actual: 92,
+    },
+    {
+      id: "demo-design-approval",
+      owner: "Mike",
+      metric_name: "First-Pass Approval %",
+      goal: 82,
+      actual: 79,
+    },
+    {
+      id: "demo-sales-pipeline",
+      owner: "Krystle",
+      metric_name: "Pipeline Coverage (x)",
+      goal: 3.2,
+      actual: 2.6,
+    },
+    {
+      id: "demo-sales-win",
+      owner: "Krystle",
+      metric_name: "Win Rate %",
+      goal: 28,
+      actual: 30,
+    },
+  ];
+
+  const latestDelta = points[points.length - 1]?.delta ?? 0;
+  const avgStep =
+    points.length > 1
+      ? (points[points.length - 1].delta - points[0].delta) / (points.length - 1)
+      : 0;
+  const nextDeltaPrediction = latestDelta + avgStep;
+
+  return {
+    points,
+    ownerConsistency,
+    offTrackStreaks,
+    scorecardMetrics,
+    latestDelta,
+    nextDeltaPrediction,
+  };
+}
+
 export function DashboardClient({ initialData }: DashboardClientProps) {
   const [data, setData] = useState(initialData);
   const [presentMode, setPresentMode] = useState(false);
   const [segmentIndex, setSegmentIndex] = useState(0);
   const [showArchived, setShowArchived] = useState(false);
   const [commentText, setCommentText] = useState<Record<string, string>>({});
-  const [issueDraft, setIssueDraft] = useState({
+  const [issueDraft, setIssueDraft] = useState<{
+    title: string;
+    priority: IssuePriority;
+    owner: string;
+  }>({
     title: "",
     priority: "Med" as IssuePriority,
-    owner: OWNERS[0] as Owner,
+    owner: OWNERS[0],
   });
   const [rockDraft, setRockDraft] = useState<{
     title: string;
-    owner: Owner;
+    owner: string;
     dueDate: string;
   }>({
     title: "",
@@ -116,7 +390,7 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
   });
   const [todoDraft, setTodoDraft] = useState<{
     task: string;
-    owner: Owner;
+    owner: string;
     dueDate: string;
   }>({
     task: "",
@@ -124,7 +398,7 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
     dueDate: "",
   });
   const [agendaDrafts, setAgendaDrafts] = useState<
-    Record<"Segue" | "Headlines", { text: string; owner: Owner }>
+    Record<"Segue" | "Headlines", { text: string; owner: string }>
   >({
     Segue: { text: "", owner: OWNERS[0] },
     Headlines: { text: "", owner: OWNERS[0] },
@@ -140,28 +414,143 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
   } | null>(null);
   const [meetingLinkDraft, setMeetingLinkDraft] = useState<{
     url: string;
-    owner: Owner;
+    owner: string;
   }>({
     url: "",
     owner: OWNERS[0],
   });
   const [scoreDrafts, setScoreDrafts] = useState<
-    Record<Owner, { metric: string; goal: string }>
-  >({
-    Joey: { metric: "", goal: "" },
-    Rena: { metric: "", goal: "" },
-    Paden: { metric: "", goal: "" },
-    Mike: { metric: "", goal: "" },
-    Krystle: { metric: "", goal: "" },
+    Record<string, { metric: string; goal: string }>
+  >({});
+  const [personDraft, setPersonDraft] = useState({
+    fullName: "",
+    username: "",
+    email: "",
+    role: "Member",
+    accentColor: DEFAULT_ACCENT_COLOR,
   });
+  const [customSegmentDraft, setCustomSegmentDraft] = useState({
+    key: "",
+    label: "",
+    duration: "5",
+  });
+  const [draggingFormatSegmentId, setDraggingFormatSegmentId] = useState<
+    string | null
+  >(null);
+  const [formatDropIndicator, setFormatDropIndicator] = useState<{
+    targetId: string;
+    position: "above" | "below";
+  } | null>(null);
+  const [sectionQuery, setSectionQuery] = useState("");
+  const [highlightedSectionId, setHighlightedSectionId] =
+    useState<DashboardSectionId | null>(null);
+  const [demoKpiInsights, setDemoKpiInsights] = useState<KpiInsightsData | null>(
+    null,
+  );
+  const [saveStatusByKey, setSaveStatusByKey] = useState<
+    Record<string, SaveState>
+  >({});
+  const sectionRefs = useRef<
+    Partial<Record<DashboardSectionId, HTMLElement | null>>
+  >({});
+  const highlightTimeoutRef = useRef<number | null>(null);
+  const saveStatusTimeoutRef = useRef<Record<string, number>>({});
 
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
+  const assignableOwners = useMemo(() => {
+    const activeNames = data.people
+      .filter((person) => person.is_active)
+      .map((person) => person.full_name.trim())
+      .filter(Boolean);
+    const unique = Array.from(new Set(activeNames));
+
+    return unique.length > 0 ? unique : [...OWNERS];
+  }, [data.people]);
+  const fallbackAssignee = assignableOwners[0] ?? OWNERS[0];
+  const ownerOptionsFor = (ownerValue: string) =>
+    assignableOwners.includes(ownerValue)
+      ? assignableOwners
+      : [ownerValue, ...assignableOwners];
+  const roleOptions = useMemo(() => {
+    const fromPeople = data.people
+      .map((person) => person.role.trim())
+      .filter(Boolean);
+    const merged = Array.from(new Set([...ROLE_OPTIONS, ...fromPeople]));
+
+    return merged.length > 0 ? merged : ["Member"];
+  }, [data.people]);
+  const ownerRoleByName = useMemo(() => {
+    const map = new Map<string, string>();
+
+    for (const person of data.people) {
+      map.set(person.full_name, person.role || "Member");
+    }
+
+    for (const [owner, role] of Object.entries(OWNER_ROLES)) {
+      if (!map.has(owner)) {
+        map.set(owner, role);
+      }
+    }
+
+    return map;
+  }, [data.people]);
+  const ownerAccentByName = useMemo(() => {
+    const map = new Map<string, string>();
+
+    for (const person of data.people) {
+      map.set(person.full_name, normalizeAccentColor(person.accent_color));
+    }
+
+    return map;
+  }, [data.people]);
+  const taskAccentStyle = (owner: string) => {
+    const color = ownerAccentByName.get(owner);
+    if (!color) return undefined;
+
+    return {
+      borderColor: color,
+      boxShadow: `0 0 0 1px ${color}33 inset`,
+    };
+  };
+  const scorecardOwners = useMemo(() => {
+    const fromMetrics = data.scorecard
+      .map((metric) => metric.owner)
+      .filter(Boolean);
+
+    return Array.from(new Set([...assignableOwners, ...fromMetrics]));
+  }, [assignableOwners, data.scorecard]);
   const scorecardByOwner = useMemo(() => {
-    return OWNERS.map((owner) => ({
+    return scorecardOwners.map((owner) => ({
       owner,
       metrics: data.scorecard.filter((metric) => metric.owner === owner),
     }));
-  }, [data.scorecard]);
+  }, [data.scorecard, scorecardOwners]);
+  const formatSegments = useMemo(() => {
+    const sorted = [...data.meeting_format_segments].sort(
+      (a, b) => a.sort_order - b.sort_order,
+    );
+    const active = sorted.filter((segment) => segment.is_enabled);
+
+    if (active.length > 0) {
+      return active;
+    }
+
+    return CORE_SEGMENT_KEYS.map((key, index) => ({
+      id: `fallback-${key}`,
+      segment_key: key,
+      label:
+        key === "Rocks"
+          ? "What's This Week"
+          : key === "To-Dos"
+            ? "Backlog / What to Expect"
+            : key,
+      duration_minutes: 5,
+      sort_order: (index + 1) * 10,
+      is_enabled: true,
+      created_at: "",
+      updated_at: "",
+    }));
+  }, [data.meeting_format_segments]);
   const segueItems = useMemo(
     () => data.agenda_items.filter((item) => item.segment === "Segue"),
     [data.agenda_items],
@@ -222,8 +611,357 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
       withoutDate,
     };
   }, [data.rocks, data.todos]);
+  const activeMeeting = useMemo(() => {
+    return (
+      data.meetings.find((meeting) => !meeting.is_closed) ??
+      data.meetings[0] ??
+      null
+    );
+  }, [data.meetings]);
+  const meetingHealth = useMemo(() => {
+    const totalMetrics = data.scorecard.length;
+    const onTrackMetrics = data.scorecard.filter(
+      (metric) => metric.status === "On Track" && metric.actual >= metric.goal,
+    ).length;
+    const totalRocks = data.rocks.length;
+    const onTrackRocks = data.rocks.filter(
+      (rock) => rock.status === "On Track",
+    ).length;
+    const totalIssues = data.issues.length;
+    const solvedIssues = data.issues.filter(
+      (issue) => issue.status === "Solved",
+    ).length;
+    const totalTodos = data.todos.length;
+    const completeTodos = data.todos.filter((todo) => todo.is_complete).length;
+
+    const metricScore = totalMetrics === 0 ? 1 : onTrackMetrics / totalMetrics;
+    const rockScore = totalRocks === 0 ? 1 : onTrackRocks / totalRocks;
+    const issueScore = totalIssues === 0 ? 1 : solvedIssues / totalIssues;
+    const todoScore = totalTodos === 0 ? 1 : completeTodos / totalTodos;
+
+    const score = Math.round(
+      (metricScore * 0.3 +
+        rockScore * 0.25 +
+        issueScore * 0.3 +
+        todoScore * 0.15) *
+        100,
+    );
+
+    const grade =
+      score >= 90
+        ? "Excellent"
+        : score >= 75
+          ? "Good"
+          : score >= 60
+            ? "Fair"
+            : "At Risk";
+
+    return { score, grade, solvedIssues, totalIssues };
+  }, [data.issues, data.rocks, data.scorecard, data.todos]);
+  const kpiInsights = useMemo(() => {
+    const snapshots = [...data.meeting_snapshots].sort(
+      (a, b) =>
+        new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+    );
+
+    const points: Array<{
+      label: string;
+      goal: number;
+      actual: number;
+      delta: number;
+    }> = [];
+    const ownerStats = new Map<string, { total: number; onTrack: number }>();
+    const metricStreaks = new Map<
+      string,
+      { owner: string; metricName: string; current: number; lastSeen: number }
+    >();
+
+    snapshots.forEach((snapshot, snapshotIndex) => {
+      const payload = snapshot.payload as { scorecard?: unknown };
+      const scoreRows = Array.isArray(payload?.scorecard)
+        ? payload.scorecard
+        : [];
+
+      let goal = 0;
+      let actual = 0;
+
+      for (const rawRow of scoreRows) {
+        if (!rawRow || typeof rawRow !== "object") continue;
+
+        const row = rawRow as {
+          goal?: number;
+          actual?: number;
+          owner?: string;
+          metric_name?: string;
+          status?: string;
+        };
+
+        const metricGoal = Number(row.goal ?? 0);
+        const metricActual = Number(row.actual ?? 0);
+        if (!Number.isFinite(metricGoal) || !Number.isFinite(metricActual)) {
+          continue;
+        }
+
+        goal += metricGoal;
+        actual += metricActual;
+
+        const owner = (row.owner ?? "Unknown").trim() || "Unknown";
+        const metricName = (row.metric_name ?? "Metric").trim() || "Metric";
+        const isOffTrack =
+          metricActual < metricGoal || (row.status ?? "") === "Off Track";
+
+        const ownerEntry = ownerStats.get(owner) ?? { total: 0, onTrack: 0 };
+        ownerEntry.total += 1;
+        if (!isOffTrack) ownerEntry.onTrack += 1;
+        ownerStats.set(owner, ownerEntry);
+
+        const metricKey = `${owner}::${metricName}`;
+        const prev = metricStreaks.get(metricKey) ?? {
+          owner,
+          metricName,
+          current: 0,
+          lastSeen: -1,
+        };
+        prev.current = isOffTrack ? prev.current + 1 : 0;
+        prev.lastSeen = snapshotIndex;
+        metricStreaks.set(metricKey, prev);
+      }
+
+      points.push({
+        label: new Date(snapshot.created_at).toLocaleDateString(),
+        goal,
+        actual,
+        delta: actual - goal,
+      });
+    });
+
+    const ownerConsistency = Array.from(ownerStats.entries())
+      .map(([owner, stat]) => ({
+        owner,
+        consistency: stat.total === 0 ? 0 : stat.onTrack / stat.total,
+      }))
+      .sort((a, b) => b.consistency - a.consistency);
+
+    const lastSnapshotIndex = points.length - 1;
+    const offTrackStreaks = Array.from(metricStreaks.values())
+      .filter(
+        (entry) => entry.current > 0 && entry.lastSeen === lastSnapshotIndex,
+      )
+      .sort((a, b) => b.current - a.current)
+      .slice(0, 5);
+
+    const deltas = points.map((point) => point.delta);
+    const latestDelta = deltas[deltas.length - 1] ?? 0;
+    let nextDeltaPrediction = latestDelta;
+
+    if (deltas.length >= 2) {
+      const n = deltas.length;
+      const xs = deltas.map((_, idx) => idx + 1);
+      const xMean = xs.reduce((sum, x) => sum + x, 0) / n;
+      const yMean = deltas.reduce((sum, y) => sum + y, 0) / n;
+      const numerator = xs.reduce(
+        (sum, x, idx) => sum + (x - xMean) * (deltas[idx] - yMean),
+        0,
+      );
+      const denominator = xs.reduce((sum, x) => sum + (x - xMean) ** 2, 0) || 1;
+      const slope = numerator / denominator;
+      const intercept = yMean - slope * xMean;
+      nextDeltaPrediction = intercept + slope * (n + 1);
+    }
+
+    return {
+      points,
+      ownerConsistency,
+      offTrackStreaks,
+      latestDelta,
+      nextDeltaPrediction,
+    };
+  }, [data.meeting_snapshots]);
+  const scorecardByDepartment = useMemo(() => {
+    const grouped = new Map<
+      string,
+      Array<{
+        id: string;
+        owner: string;
+        metric_name: string;
+        goal: number;
+        actual: number;
+      }>
+    >();
+
+    for (const metric of data.scorecard) {
+      const department = ownerRoleByName.get(metric.owner) ?? "Member";
+      const current = grouped.get(department) ?? [];
+      current.push({
+        id: metric.id,
+        owner: metric.owner,
+        metric_name: metric.metric_name,
+        goal: metric.goal,
+        actual: metric.actual,
+      });
+      grouped.set(department, current);
+    }
+
+    return Array.from(grouped.entries()).map(([department, metrics]) => ({
+      department,
+      metrics: metrics.sort((a, b) => a.metric_name.localeCompare(b.metric_name)),
+    }));
+  }, [data.scorecard, ownerRoleByName]);
+
+  useEffect(() => {
+    if (formatSegments.length === 0) {
+      if (segmentIndex !== 0) {
+        setSegmentIndex(0);
+      }
+      return;
+    }
+
+    if (segmentIndex > formatSegments.length - 1) {
+      setSegmentIndex(formatSegments.length - 1);
+    }
+  }, [formatSegments, segmentIndex]);
+
+  useEffect(() => {
+    return () => {
+      if (highlightTimeoutRef.current !== null) {
+        window.clearTimeout(highlightTimeoutRef.current);
+      }
+
+      for (const timeoutId of Object.values(saveStatusTimeoutRef.current)) {
+        window.clearTimeout(timeoutId);
+      }
+    };
+  }, []);
+
+  const filteredSections = useMemo(() => {
+    const query = sectionQuery.trim().toLowerCase();
+
+    if (!query) {
+      return DASHBOARD_SECTIONS;
+    }
+
+    return DASHBOARD_SECTIONS.filter((section) => {
+      const inLabel = section.label.toLowerCase().includes(query);
+      const inKeywords = section.keywords.some((keyword) =>
+        keyword.toLowerCase().includes(query),
+      );
+
+      return inLabel || inKeywords;
+    });
+  }, [sectionQuery]);
 
   useRealtimeDashboard(setData);
+
+  function registerSectionRef(sectionId: DashboardSectionId) {
+    return (node: HTMLElement | null) => {
+      sectionRefs.current[sectionId] = node;
+    };
+  }
+
+  function jumpToSection(sectionId: DashboardSectionId) {
+    const node = sectionRefs.current[sectionId];
+    if (!node) {
+      return;
+    }
+
+    node.scrollIntoView({ behavior: "smooth", block: "start" });
+    setHighlightedSectionId(sectionId);
+
+    if (highlightTimeoutRef.current !== null) {
+      window.clearTimeout(highlightTimeoutRef.current);
+    }
+
+    highlightTimeoutRef.current = window.setTimeout(() => {
+      setHighlightedSectionId((current) =>
+        current === sectionId ? null : current,
+      );
+    }, 1400);
+  }
+
+  const sectionWrapperClass = (sectionId: DashboardSectionId) =>
+    `scroll-mt-36 rounded-2xl transition-all duration-500 ${
+      highlightedSectionId === sectionId
+        ? "ring-2 ring-[#e72027] shadow-[0_0_0_1px_#e72027]"
+        : "ring-0"
+    }`;
+
+  function getSaveStatus(statusKey: string): SaveState {
+    return saveStatusByKey[statusKey] ?? "idle";
+  }
+
+  function updateSaveStatus(statusKey: string, state: SaveState) {
+    setSaveStatusByKey((previous) => ({ ...previous, [statusKey]: state }));
+  }
+
+  function markSaveSuccess(statusKey: string) {
+    updateSaveStatus(statusKey, "saved");
+
+    const existingTimeout = saveStatusTimeoutRef.current[statusKey];
+    if (existingTimeout) {
+      window.clearTimeout(existingTimeout);
+    }
+
+    saveStatusTimeoutRef.current[statusKey] = window.setTimeout(() => {
+      setSaveStatusByKey((previous) => {
+        if (previous[statusKey] !== "saved") {
+          return previous;
+        }
+
+        const next = { ...previous };
+        delete next[statusKey];
+        return next;
+      });
+    }, 1200);
+  }
+
+  async function runMutation(
+    statusKey: string,
+    mutation: PromiseLike<{ error: { message?: string } | null }>,
+  ) {
+    updateSaveStatus(statusKey, "saving");
+    const { error } = await mutation;
+
+    if (error) {
+      updateSaveStatus(statusKey, "error");
+      return false;
+    }
+
+    markSaveSuccess(statusKey);
+    return true;
+  }
+
+  function saveStatusBadge(statusKey: string) {
+    const status = getSaveStatus(statusKey);
+
+    if (status === "idle") {
+      return null;
+    }
+
+    const content =
+      status === "saving"
+        ? "Saving..."
+        : status === "saved"
+          ? "Saved"
+          : "Failed - retry";
+    const className =
+      status === "saving"
+        ? "border-app-border text-app-muted"
+        : status === "saved"
+          ? "border-emerald-700 text-emerald-300"
+          : "border-[#e72027] text-[#e72027]";
+
+    return (
+      <span
+        className={`rounded border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] ${className}`}
+      >
+        {content}
+      </span>
+    );
+  }
+
+  function toStatusKey(value: string) {
+    return value.trim().toLowerCase().replace(/\s+/g, "-");
+  }
 
   async function updateScoreActual(id: string, rawActual: string) {
     const actual = Number(rawActual);
@@ -234,10 +972,13 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
     }
 
     const status = actual < current.goal ? "Off Track" : "On Track";
-    await supabase
-      .from("scorecard")
-      .update({ actual, status, updated_at: new Date().toISOString() })
-      .eq("id", id);
+    await runMutation(
+      `score-${id}`,
+      supabase
+        .from("scorecard")
+        .update({ actual, status, updated_at: new Date().toISOString() })
+        .eq("id", id),
+    );
   }
 
   async function updateScoreGoal(id: string, rawGoal: string) {
@@ -249,10 +990,13 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
     }
 
     const status = current.actual < goal ? "Off Track" : "On Track";
-    await supabase
-      .from("scorecard")
-      .update({ goal, status, updated_at: new Date().toISOString() })
-      .eq("id", id);
+    await runMutation(
+      `score-${id}`,
+      supabase
+        .from("scorecard")
+        .update({ goal, status, updated_at: new Date().toISOString() })
+        .eq("id", id),
+    );
   }
 
   async function updateScoreMetricName(id: string, metricName: string) {
@@ -262,10 +1006,13 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
       return;
     }
 
-    await supabase
-      .from("scorecard")
-      .update({ metric_name: nextName, updated_at: new Date().toISOString() })
-      .eq("id", id);
+    await runMutation(
+      `score-${id}`,
+      supabase
+        .from("scorecard")
+        .update({ metric_name: nextName, updated_at: new Date().toISOString() })
+        .eq("id", id),
+    );
   }
 
   async function toggleScoreStatus(
@@ -274,17 +1021,23 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
   ) {
     const nextStatus = currentStatus === "On Track" ? "Off Track" : "On Track";
 
-    await supabase
-      .from("scorecard")
-      .update({ status: nextStatus, updated_at: new Date().toISOString() })
-      .eq("id", id);
+    await runMutation(
+      `score-${id}`,
+      supabase
+        .from("scorecard")
+        .update({ status: nextStatus, updated_at: new Date().toISOString() })
+        .eq("id", id),
+    );
   }
 
   async function deleteScoreField(id: string) {
-    await supabase.from("scorecard").delete().eq("id", id);
+    await runMutation(
+      `score-${id}`,
+      supabase.from("scorecard").delete().eq("id", id),
+    );
   }
 
-  async function addScoreField(owner: Owner) {
+  async function addScoreField(owner: string) {
     const draft = scoreDrafts[owner];
     const metricName = draft.metric.trim();
     const goal = Number(draft.goal);
@@ -293,13 +1046,21 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
       return;
     }
 
-    await supabase.from("scorecard").insert({
-      metric_name: metricName,
-      goal,
-      actual: 0,
-      owner,
-      status: "Off Track",
-    });
+    const ownerKey = toStatusKey(owner);
+    const success = await runMutation(
+      `score-add-${ownerKey}`,
+      supabase.from("scorecard").insert({
+        metric_name: metricName,
+        goal,
+        actual: 0,
+        owner,
+        status: "Off Track",
+      }),
+    );
+
+    if (!success) {
+      return;
+    }
 
     setScoreDrafts((previous) => ({
       ...previous,
@@ -352,7 +1113,7 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
       .eq("id", id);
   }
 
-  async function updateIssueOwner(id: string, owner: Owner) {
+  async function updateIssueOwner(id: string, owner: string) {
     await supabase
       .from("issues")
       .update({ owner, updated_at: new Date().toISOString() })
@@ -376,10 +1137,13 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
   ) {
     const nextStatus = currentStatus === "On Track" ? "Off Track" : "On Track";
 
-    await supabase
-      .from("rocks")
-      .update({ status: nextStatus, updated_at: new Date().toISOString() })
-      .eq("id", id);
+    await runMutation(
+      `rock-${id}`,
+      supabase
+        .from("rocks")
+        .update({ status: nextStatus, updated_at: new Date().toISOString() })
+        .eq("id", id),
+    );
   }
 
   async function addRock() {
@@ -389,12 +1153,19 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
       return;
     }
 
-    await supabase.from("rocks").insert({
-      title,
-      owner: rockDraft.owner,
-      status: "Off Track",
-      due_date: rockDraft.dueDate || null,
-    });
+    const success = await runMutation(
+      "rock-add",
+      supabase.from("rocks").insert({
+        title,
+        owner: rockDraft.owner,
+        status: "Off Track",
+        due_date: rockDraft.dueDate || null,
+      }),
+    );
+
+    if (!success) {
+      return;
+    }
 
     setRockDraft((previous) => ({ ...previous, title: "", dueDate: "" }));
   }
@@ -403,52 +1174,70 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
     const nextTitle = title.trim();
     if (!nextTitle) return;
 
-    await supabase
-      .from("rocks")
-      .update({ title: nextTitle, updated_at: new Date().toISOString() })
-      .eq("id", id);
+    await runMutation(
+      `rock-${id}`,
+      supabase
+        .from("rocks")
+        .update({ title: nextTitle, updated_at: new Date().toISOString() })
+        .eq("id", id),
+    );
   }
 
-  async function updateRockOwner(id: string, owner: Owner) {
-    await supabase
-      .from("rocks")
-      .update({ owner, updated_at: new Date().toISOString() })
-      .eq("id", id);
+  async function updateRockOwner(id: string, owner: string) {
+    await runMutation(
+      `rock-${id}`,
+      supabase
+        .from("rocks")
+        .update({ owner, updated_at: new Date().toISOString() })
+        .eq("id", id),
+    );
   }
 
   async function updateRockDueDate(id: string, dueDate: string) {
-    await supabase
-      .from("rocks")
-      .update({
-        due_date: dueDate || null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", id);
+    await runMutation(
+      `rock-${id}`,
+      supabase
+        .from("rocks")
+        .update({
+          due_date: dueDate || null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", id),
+    );
   }
 
   async function deleteRock(id: string) {
-    await supabase.from("rocks").delete().eq("id", id);
+    await runMutation(`rock-${id}`, supabase.from("rocks").delete().eq("id", id));
   }
 
   async function archiveRock(id: string) {
-    await supabase
-      .from("rocks")
-      .update({ is_archived: true, updated_at: new Date().toISOString() })
-      .eq("id", id);
+    await runMutation(
+      `rock-${id}`,
+      supabase
+        .from("rocks")
+        .update({ is_archived: true, updated_at: new Date().toISOString() })
+        .eq("id", id),
+    );
   }
 
   async function unarchiveRock(id: string) {
-    await supabase
-      .from("rocks")
-      .update({ is_archived: false, updated_at: new Date().toISOString() })
-      .eq("id", id);
+    await runMutation(
+      `rock-${id}`,
+      supabase
+        .from("rocks")
+        .update({ is_archived: false, updated_at: new Date().toISOString() })
+        .eq("id", id),
+    );
   }
 
   async function toggleTodoComplete(id: string, current: boolean) {
-    await supabase
-      .from("todos")
-      .update({ is_complete: !current, updated_at: new Date().toISOString() })
-      .eq("id", id);
+    await runMutation(
+      `todo-${id}`,
+      supabase
+        .from("todos")
+        .update({ is_complete: !current, updated_at: new Date().toISOString() })
+        .eq("id", id),
+    );
   }
 
   async function addTodo() {
@@ -458,12 +1247,19 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
       return;
     }
 
-    await supabase.from("todos").insert({
-      task_description: task,
-      owner: todoDraft.owner,
-      is_complete: false,
-      due_date: todoDraft.dueDate || null,
-    });
+    const success = await runMutation(
+      "todo-add",
+      supabase.from("todos").insert({
+        task_description: task,
+        owner: todoDraft.owner,
+        is_complete: false,
+        due_date: todoDraft.dueDate || null,
+      }),
+    );
+
+    if (!success) {
+      return;
+    }
 
     setTodoDraft((previous) => ({ ...previous, task: "", dueDate: "" }));
   }
@@ -472,48 +1268,63 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
     const nextTask = taskDescription.trim();
     if (!nextTask) return;
 
-    await supabase
-      .from("todos")
-      .update({
-        task_description: nextTask,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", id);
+    await runMutation(
+      `todo-${id}`,
+      supabase
+        .from("todos")
+        .update({
+          task_description: nextTask,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", id),
+    );
   }
 
-  async function updateTodoOwner(id: string, owner: Owner) {
-    await supabase
-      .from("todos")
-      .update({ owner, updated_at: new Date().toISOString() })
-      .eq("id", id);
+  async function updateTodoOwner(id: string, owner: string) {
+    await runMutation(
+      `todo-${id}`,
+      supabase
+        .from("todos")
+        .update({ owner, updated_at: new Date().toISOString() })
+        .eq("id", id),
+    );
   }
 
   async function updateTodoDueDate(id: string, dueDate: string) {
-    await supabase
-      .from("todos")
-      .update({
-        due_date: dueDate || null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", id);
+    await runMutation(
+      `todo-${id}`,
+      supabase
+        .from("todos")
+        .update({
+          due_date: dueDate || null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", id),
+    );
   }
 
   async function deleteTodo(id: string) {
-    await supabase.from("todos").delete().eq("id", id);
+    await runMutation(`todo-${id}`, supabase.from("todos").delete().eq("id", id));
   }
 
   async function archiveTodo(id: string) {
-    await supabase
-      .from("todos")
-      .update({ is_archived: true, updated_at: new Date().toISOString() })
-      .eq("id", id);
+    await runMutation(
+      `todo-${id}`,
+      supabase
+        .from("todos")
+        .update({ is_archived: true, updated_at: new Date().toISOString() })
+        .eq("id", id),
+    );
   }
 
   async function unarchiveTodo(id: string) {
-    await supabase
-      .from("todos")
-      .update({ is_archived: false, updated_at: new Date().toISOString() })
-      .eq("id", id);
+    await runMutation(
+      `todo-${id}`,
+      supabase
+        .from("todos")
+        .update({ is_archived: false, updated_at: new Date().toISOString() })
+        .eq("id", id),
+    );
   }
 
   async function moveRockToTodo(rockId: string) {
@@ -523,14 +1334,21 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
       return;
     }
 
-    await supabase.from("todos").insert({
-      task_description: rock.title,
-      owner: rock.owner,
-      is_complete: rock.status === "On Track",
-      due_date: rock.due_date ?? null,
-    });
+    const inserted = await runMutation(
+      `rock-${rockId}`,
+      supabase.from("todos").insert({
+        task_description: rock.title,
+        owner: rock.owner,
+        is_complete: rock.status === "On Track",
+        due_date: rock.due_date ?? null,
+      }),
+    );
 
-    await supabase.from("rocks").delete().eq("id", rockId);
+    if (!inserted) {
+      return;
+    }
+
+    await runMutation(`rock-${rockId}`, supabase.from("rocks").delete().eq("id", rockId));
   }
 
   async function moveTodoToRock(todoId: string) {
@@ -540,14 +1358,21 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
       return;
     }
 
-    await supabase.from("rocks").insert({
-      title: todo.task_description,
-      owner: todo.owner,
-      status: todo.is_complete ? "On Track" : "Off Track",
-      due_date: todo.due_date ?? null,
-    });
+    const inserted = await runMutation(
+      `todo-${todoId}`,
+      supabase.from("rocks").insert({
+        title: todo.task_description,
+        owner: todo.owner,
+        status: todo.is_complete ? "On Track" : "Off Track",
+        due_date: todo.due_date ?? null,
+      }),
+    );
 
-    await supabase.from("todos").delete().eq("id", todoId);
+    if (!inserted) {
+      return;
+    }
+
+    await runMutation(`todo-${todoId}`, supabase.from("todos").delete().eq("id", todoId));
   }
 
   async function dropIntoPriority() {
@@ -598,7 +1423,7 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
       .eq("id", id);
   }
 
-  async function updateAgendaItemOwner(id: string, owner: Owner) {
+  async function updateAgendaItemOwner(id: string, owner: string) {
     await supabase
       .from("agenda_items")
       .update({ owner, updated_at: new Date().toISOString() })
@@ -618,7 +1443,7 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
 
     await supabase
       .from("issue_comments")
-      .insert({ issue_id: issueId, comment: text, owner: "Joey" });
+      .insert({ issue_id: issueId, comment: text, owner: fallbackAssignee });
 
     setCommentText((previous) => ({ ...previous, [issueId]: "" }));
   }
@@ -650,7 +1475,7 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
       .eq("id", id);
   }
 
-  async function updateMeetingLinkOwner(id: string, owner: Owner) {
+  async function updateMeetingLinkOwner(id: string, owner: string) {
     await supabase
       .from("meeting_links")
       .update({ owner, updated_at: new Date().toISOString() })
@@ -670,6 +1495,94 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
 
     await supabase.from("conclude_items").insert({ content: nextContent });
     setConcludeDraft("");
+  }
+
+  async function addPerson() {
+    const fullName = personDraft.fullName.trim();
+    const username = personDraft.username.trim().toLowerCase();
+    const email = personDraft.email.trim().toLowerCase();
+    const role = personDraft.role.trim() || "Member";
+    const accentColor = normalizeAccentColor(personDraft.accentColor);
+
+    if (!fullName || !username || !email) {
+      return;
+    }
+
+    await supabase.from("people").insert({
+      full_name: fullName,
+      username,
+      email,
+      role,
+      accent_color: accentColor,
+      is_active: true,
+    });
+
+    setPersonDraft({
+      fullName: "",
+      username: "",
+      email: "",
+      role: "Member",
+      accentColor: DEFAULT_ACCENT_COLOR,
+    });
+  }
+
+  async function updatePersonName(id: string, fullName: string) {
+    const nextName = fullName.trim();
+    if (!nextName) return;
+
+    await supabase
+      .from("people")
+      .update({ full_name: nextName, updated_at: new Date().toISOString() })
+      .eq("id", id);
+  }
+
+  async function updatePersonUsername(id: string, username: string) {
+    const nextUsername = username.trim().toLowerCase();
+    if (!nextUsername) return;
+
+    await supabase
+      .from("people")
+      .update({ username: nextUsername, updated_at: new Date().toISOString() })
+      .eq("id", id);
+  }
+
+  async function updatePersonEmail(id: string, email: string) {
+    const nextEmail = email.trim().toLowerCase();
+    if (!nextEmail) return;
+
+    await supabase
+      .from("people")
+      .update({ email: nextEmail, updated_at: new Date().toISOString() })
+      .eq("id", id);
+  }
+
+  async function updatePersonRole(id: string, role: string) {
+    const nextRole = role.trim() || "Member";
+
+    await supabase
+      .from("people")
+      .update({ role: nextRole, updated_at: new Date().toISOString() })
+      .eq("id", id);
+  }
+
+  async function updatePersonAccentColor(id: string, accentColor: string) {
+    const nextColor = normalizeAccentColor(accentColor);
+
+    await supabase
+      .from("people")
+      .update({ accent_color: nextColor, updated_at: new Date().toISOString() })
+      .eq("id", id);
+  }
+
+  async function togglePersonActive(id: string, isActive: boolean) {
+    await supabase
+      .from("people")
+      .update({ is_active: !isActive, updated_at: new Date().toISOString() })
+      .eq("id", id);
+  }
+
+  async function deletePerson(id: string) {
+    await supabase.from("people").delete().eq("id", id);
   }
 
   async function updateConcludeItem(id: string, content: string) {
@@ -713,6 +1626,117 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
     setEditingConcludeText("");
   }
 
+  async function updateFormatLabel(id: string, label: string) {
+    const nextLabel = label.trim();
+    if (!nextLabel) {
+      return;
+    }
+
+    await supabase
+      .from("meeting_format_segments")
+      .update({ label: nextLabel, updated_at: new Date().toISOString() })
+      .eq("id", id);
+  }
+
+  async function updateFormatDuration(id: string, rawDuration: string) {
+    const durationMinutes = Number(rawDuration);
+    if (Number.isNaN(durationMinutes) || durationMinutes < 1) {
+      return;
+    }
+
+    await supabase
+      .from("meeting_format_segments")
+      .update({
+        duration_minutes: Math.round(durationMinutes),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", id);
+  }
+
+  async function toggleFormatEnabled(id: string, isEnabled: boolean) {
+    await supabase
+      .from("meeting_format_segments")
+      .update({ is_enabled: !isEnabled, updated_at: new Date().toISOString() })
+      .eq("id", id);
+  }
+
+  async function reorderFormatSegments(
+    draggedId: string,
+    targetId: string,
+    position: "above" | "below",
+  ) {
+    if (draggedId === targetId) {
+      return;
+    }
+
+    const sorted = [...data.meeting_format_segments].sort(
+      (a, b) => a.sort_order - b.sort_order,
+    );
+    const draggedIndex = sorted.findIndex(
+      (segment) => segment.id === draggedId,
+    );
+    const targetIndex = sorted.findIndex((segment) => segment.id === targetId);
+
+    if (draggedIndex === -1 || targetIndex === -1) {
+      return;
+    }
+
+    const reordered = [...sorted];
+    const [draggedSegment] = reordered.splice(draggedIndex, 1);
+
+    let insertIndex = position === "below" ? targetIndex + 1 : targetIndex;
+    if (draggedIndex < insertIndex) {
+      insertIndex -= 1;
+    }
+
+    reordered.splice(insertIndex, 0, draggedSegment);
+
+    await Promise.all(
+      reordered.map((segment, index) =>
+        supabase
+          .from("meeting_format_segments")
+          .update({
+            sort_order: (index + 1) * 10,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", segment.id),
+      ),
+    );
+  }
+
+  async function addCustomFormatSegment() {
+    const key = customSegmentDraft.key.trim();
+    const label = customSegmentDraft.label.trim();
+    const duration = Number(customSegmentDraft.duration);
+
+    if (!key || !label || Number.isNaN(duration) || duration < 1) {
+      return;
+    }
+
+    const maxOrder = data.meeting_format_segments.reduce(
+      (max, segment) => Math.max(max, segment.sort_order),
+      0,
+    );
+
+    await supabase.from("meeting_format_segments").insert({
+      segment_key: key,
+      label,
+      duration_minutes: Math.round(duration),
+      sort_order: maxOrder + 10,
+      is_enabled: true,
+    });
+
+    setCustomSegmentDraft({ key: "", label: "", duration: "5" });
+  }
+
+  async function deleteCustomFormatSegment(id: string, segmentKey: string) {
+    if (CORE_SEGMENT_KEYS.includes(segmentKey)) {
+      return;
+    }
+
+    await supabase.from("meeting_format_segments").delete().eq("id", id);
+  }
+
   function scorecardSection() {
     return (
       <section className="rounded-2xl border border-app-border bg-app-panel p-4">
@@ -723,6 +1747,7 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
               (metric) =>
                 metric.actual < metric.goal || metric.status === "Off Track",
             ).length;
+            const ownerDraft = scoreDrafts[owner] ?? { metric: "", goal: "" };
 
             return (
               <article
@@ -731,12 +1756,12 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
               >
                 <div className="mb-3 flex items-center gap-3">
                   <div className="flex h-8 w-8 items-center justify-center rounded-full border border-app-border text-xs text-white">
-                    {OWNER_INITIALS[owner]}
+                    {getInitials(owner)}
                   </div>
                   <div>
                     <p className="font-heading text-base text-white">{owner}</p>
                     <p className="text-xs text-app-muted">
-                      {OWNER_ROLES[owner]}
+                      {ownerRoleByName.get(owner) ?? "Member"}
                     </p>
                   </div>
                 </div>
@@ -754,7 +1779,7 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                     return (
                       <div
                         key={metric.id}
-                        className="grid grid-cols-1 gap-2 rounded-lg border border-app-border bg-app-base p-3 md:grid-cols-[2fr_72px_72px_84px_26px]"
+                        className="grid grid-cols-1 gap-2 rounded-lg border border-app-border bg-app-base p-3 md:grid-cols-[2fr_72px_72px_84px_96px_26px]"
                       >
                         <input
                           defaultValue={metric.metric_name}
@@ -798,6 +1823,9 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                         >
                           {metric.status}
                         </button>
+                        <div className="flex items-center justify-end">
+                          {saveStatusBadge(`score-${metric.id}`)}
+                        </div>
                         <button
                           type="button"
                           onClick={() => deleteScoreField(metric.id)}
@@ -819,12 +1847,12 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
 
                 <div className="mt-3 flex flex-wrap gap-2">
                   <input
-                    value={scoreDrafts[owner].metric}
+                    value={ownerDraft.metric}
                     onChange={(event) =>
                       setScoreDrafts((previous) => ({
                         ...previous,
                         [owner]: {
-                          ...previous[owner],
+                          ...(previous[owner] ?? { metric: "", goal: "" }),
                           metric: event.target.value,
                         },
                       }))
@@ -836,12 +1864,12 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                     type="number"
                     min={0}
                     step="0.01"
-                    value={scoreDrafts[owner].goal}
+                    value={ownerDraft.goal}
                     onChange={(event) =>
                       setScoreDrafts((previous) => ({
                         ...previous,
                         [owner]: {
-                          ...previous[owner],
+                          ...(previous[owner] ?? { metric: "", goal: "" }),
                           goal: event.target.value,
                         },
                       }))
@@ -856,6 +1884,7 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                   >
                     Add Metric
                   </button>
+                  {saveStatusBadge(`score-add-${toStatusKey(owner)}`)}
                 </div>
               </article>
             );
@@ -893,6 +1922,7 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
             <div
               key={rock.id}
               className="space-y-2 rounded-lg border border-app-border bg-black p-3"
+              style={taskAccentStyle(rock.owner)}
               draggable
               onDragStart={() => setDraggingTask({ type: "rock", id: rock.id })}
               onDragEnd={() => setDraggingTask(null)}
@@ -912,11 +1942,11 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                   <select
                     value={rock.owner}
                     onChange={(event) =>
-                      updateRockOwner(rock.id, event.target.value as Owner)
+                      updateRockOwner(rock.id, event.target.value)
                     }
                     className="rounded border border-app-border bg-app-base px-2 py-1 text-xs text-white"
                   >
-                    {OWNERS.map((owner) => (
+                    {ownerOptionsFor(rock.owner).map((owner) => (
                       <option key={owner}>{owner}</option>
                     ))}
                   </select>
@@ -943,6 +1973,7 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                   {rock.status}
                 </button>
                 <div className="flex items-center gap-1">
+                  {saveStatusBadge(`rock-${rock.id}`)}
                   <button
                     type="button"
                     onClick={() => archiveRock(rock.id)}
@@ -980,12 +2011,12 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
               onChange={(event) =>
                 setRockDraft((previous) => ({
                   ...previous,
-                  owner: event.target.value as Owner,
+                  owner: event.target.value,
                 }))
               }
               className="rounded border border-app-border bg-app-base px-2 py-1 text-xs text-white"
             >
-              {OWNERS.map((owner) => (
+              {ownerOptionsFor(rockDraft.owner).map((owner) => (
                 <option key={owner}>{owner}</option>
               ))}
             </select>
@@ -1007,6 +2038,7 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
             >
               Add This Week Item
             </button>
+            {saveStatusBadge("rock-add")}
           </div>
 
           <div className="mt-4 border-t border-app-border pt-4">
@@ -1026,6 +2058,7 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                 <div
                   key={todo.id}
                   className="flex items-center justify-between rounded-lg border border-app-border bg-black p-3"
+                  style={taskAccentStyle(todo.owner)}
                   draggable
                   onDragStart={() =>
                     setDraggingTask({ type: "todo", id: todo.id })
@@ -1050,11 +2083,11 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                     <select
                       value={todo.owner}
                       onChange={(event) =>
-                        updateTodoOwner(todo.id, event.target.value as Owner)
+                        updateTodoOwner(todo.id, event.target.value)
                       }
                       className="rounded border border-app-border bg-app-base px-2 py-1 text-xs text-white"
                     >
-                      {OWNERS.map((owner) => (
+                      {ownerOptionsFor(todo.owner).map((owner) => (
                         <option key={owner}>{owner}</option>
                       ))}
                     </select>
@@ -1069,6 +2102,7 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                   </div>
 
                   <div className="ml-3 flex items-center gap-2">
+                    {saveStatusBadge(`todo-${todo.id}`)}
                     <input
                       type="checkbox"
                       checked={todo.is_complete}
@@ -1113,12 +2147,12 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                   onChange={(event) =>
                     setTodoDraft((previous) => ({
                       ...previous,
-                      owner: event.target.value as Owner,
+                      owner: event.target.value,
                     }))
                   }
                   className="rounded border border-app-border bg-app-base px-2 py-1 text-xs text-white"
                 >
-                  {OWNERS.map((owner) => (
+                  {ownerOptionsFor(todoDraft.owner).map((owner) => (
                     <option key={owner}>{owner}</option>
                   ))}
                 </select>
@@ -1140,6 +2174,7 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                 >
                   Add Backlog Item
                 </button>
+                {saveStatusBadge("todo-add")}
               </div>
             </div>
           </div>
@@ -1243,6 +2278,7 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                   <li
                     key={task.id}
                     className="rounded border border-app-border bg-app-base px-2 py-1 text-sm text-white"
+                    style={taskAccentStyle(task.owner)}
                   >
                     <span
                       className={
@@ -1273,6 +2309,7 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                   <li
                     key={task.id}
                     className="rounded border border-app-border bg-app-base px-2 py-1 text-sm text-white"
+                    style={taskAccentStyle(task.owner)}
                   >
                     <span
                       className={
@@ -1312,6 +2349,7 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
             <article
               key={issue.id}
               className="rounded-lg border border-app-border bg-black p-3"
+              style={taskAccentStyle(issue.owner)}
             >
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <input
@@ -1325,11 +2363,11 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                   <select
                     value={issue.owner}
                     onChange={(event) =>
-                      updateIssueOwner(issue.id, event.target.value as Owner)
+                      updateIssueOwner(issue.id, event.target.value)
                     }
                     className="rounded border border-app-border bg-app-base px-2 py-1 text-xs text-white"
                   >
-                    {OWNERS.map((owner) => (
+                    {ownerOptionsFor(issue.owner).map((owner) => (
                       <option key={owner}>{owner}</option>
                     ))}
                   </select>
@@ -1385,9 +2423,9 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
               <div className="mt-2 flex gap-2">
                 <select
                   className="rounded border border-app-border bg-app-base px-2 py-1 text-xs text-white"
-                  defaultValue={OWNERS[0]}
+                  defaultValue={fallbackAssignee}
                 >
-                  {OWNERS.map((owner) => (
+                  {assignableOwners.map((owner) => (
                     <option key={owner}>{owner}</option>
                   ))}
                 </select>
@@ -1444,12 +2482,12 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
               onChange={(event) =>
                 setIssueDraft((previous) => ({
                   ...previous,
-                  owner: event.target.value as Owner,
+                  owner: event.target.value,
                 }))
               }
               className="rounded border border-app-border bg-app-base px-2 py-1 text-xs text-white"
             >
-              {OWNERS.map((owner) => (
+              {ownerOptionsFor(issueDraft.owner).map((owner) => (
                 <option key={owner}>{owner}</option>
               ))}
             </select>
@@ -1490,14 +2528,11 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                   <select
                     value={item.owner}
                     onChange={(event) =>
-                      updateAgendaItemOwner(
-                        item.id,
-                        event.target.value as Owner,
-                      )
+                      updateAgendaItemOwner(item.id, event.target.value)
                     }
                     className="rounded border border-app-border bg-black px-2 py-1 text-xs text-white"
                   >
-                    {OWNERS.map((owner) => (
+                    {ownerOptionsFor(item.owner).map((owner) => (
                       <option key={owner}>{owner}</option>
                     ))}
                   </select>
@@ -1532,13 +2567,13 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                   ...previous,
                   [segment]: {
                     ...previous[segment],
-                    owner: event.target.value as Owner,
+                    owner: event.target.value,
                   },
                 }))
               }
               className="rounded border border-app-border bg-app-base px-2 py-1 text-xs text-white"
             >
-              {OWNERS.map((owner) => (
+              {ownerOptionsFor(agendaDrafts[segment].owner).map((owner) => (
                 <option key={owner}>{owner}</option>
               ))}
             </select>
@@ -1598,14 +2633,11 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                   <select
                     value={link.owner}
                     onChange={(event) =>
-                      updateMeetingLinkOwner(
-                        link.id,
-                        event.target.value as Owner,
-                      )
+                      updateMeetingLinkOwner(link.id, event.target.value)
                     }
                     className="rounded border border-app-border bg-app-base px-2 py-1 text-xs text-white"
                   >
-                    {OWNERS.map((owner) => (
+                    {ownerOptionsFor(link.owner).map((owner) => (
                       <option key={owner}>{owner}</option>
                     ))}
                   </select>
@@ -1667,12 +2699,12 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
               onChange={(event) =>
                 setMeetingLinkDraft((previous) => ({
                   ...previous,
-                  owner: event.target.value as Owner,
+                  owner: event.target.value,
                 }))
               }
               className="rounded border border-app-border bg-app-base px-2 py-1 text-xs text-white"
             >
-              {OWNERS.map((owner) => (
+              {ownerOptionsFor(meetingLinkDraft.owner).map((owner) => (
                 <option key={owner}>{owner}</option>
               ))}
             </select>
@@ -1799,7 +2831,854 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
     );
   }
 
-  const currentSegment = AGENDA_SEGMENTS[segmentIndex];
+  function pastMeetingsSection() {
+    const completedMeetings = [...data.meetings]
+      .filter((meeting) => meeting.is_closed && meeting.ended_at)
+      .sort(
+        (a, b) =>
+          new Date(b.ended_at ?? b.started_at).getTime() -
+          new Date(a.ended_at ?? a.started_at).getTime(),
+      );
+
+    return (
+      <section className="rounded-2xl border border-app-border bg-app-panel p-4">
+        <h2 className="font-heading text-xl text-white">Past Meetings</h2>
+        <p className="mt-1 text-xs text-app-muted">
+          Review meeting date, start/end time, and total duration.
+        </p>
+
+        <div className="mt-3 space-y-2">
+          {completedMeetings.map((meeting) => {
+            const started = new Date(meeting.started_at);
+            const ended = meeting.ended_at ? new Date(meeting.ended_at) : null;
+            const meetingName = meeting.label?.trim() || `${meeting.meeting_date} Meeting`;
+            const hasValidTimes =
+              Number.isFinite(started.getTime()) &&
+              Boolean(ended && Number.isFinite(ended.getTime()));
+            const durationSeconds =
+              meeting.total_duration_seconds > 0
+                ? meeting.total_duration_seconds
+                : hasValidTimes && ended
+                  ? Math.max(
+                      0,
+                      Math.floor((ended.getTime() - started.getTime()) / 1000),
+                    )
+                  : 0;
+
+            return (
+              <article
+                key={meeting.id}
+                className="rounded-lg border border-app-border bg-black p-3"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <input
+                    defaultValue={meetingName}
+                    onBlur={(event) =>
+                      void updateMeetingLabel(
+                        meeting.id,
+                        event.target.value,
+                        meeting.meeting_date,
+                      )
+                    }
+                    className="min-w-52 rounded border border-app-border bg-app-base px-2 py-1 font-heading text-sm text-white"
+                  />
+                  <span className="rounded border border-app-border px-2 py-0.5 text-[10px] text-app-muted">
+                    {meeting.meeting_date}
+                  </span>
+                </div>
+
+                <div className="mt-2 flex flex-wrap gap-2 text-xs text-app-muted">
+                  <span className="rounded border border-app-border px-2 py-1">
+                    Start: {hasValidTimes ? started.toLocaleTimeString() : "--"}
+                  </span>
+                  <span className="rounded border border-app-border px-2 py-1">
+                    End: {hasValidTimes && ended ? ended.toLocaleTimeString() : "--"}
+                  </span>
+                  <span className="rounded border border-app-border px-2 py-1 text-white">
+                    Total: {toDurationLabel(durationSeconds)}
+                  </span>
+                </div>
+              </article>
+            );
+          })}
+
+          {completedMeetings.length === 0 ? (
+            <p className="rounded-lg border border-app-border bg-black px-3 py-2 text-xs text-app-muted">
+              No completed meetings yet.
+            </p>
+          ) : null}
+        </div>
+      </section>
+    );
+  }
+
+  function peopleSection() {
+    const activePeople = data.people.filter((person) => person.is_active);
+    const inactivePeople = data.people.filter((person) => !person.is_active);
+
+    return (
+      <section className="rounded-2xl border border-app-border bg-app-panel p-4">
+        <h2 className="font-heading text-xl text-white">People</h2>
+        <p className="mt-1 text-xs text-app-muted">
+          Manage members for future task assignment and ownership.
+        </p>
+
+        <div className="mt-3 space-y-3">
+          {activePeople.map((person) => (
+            <article
+              key={person.id}
+              className="rounded-lg border border-app-border bg-black p-3"
+            >
+              <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                <input
+                  defaultValue={person.full_name}
+                  onBlur={(event) =>
+                    updatePersonName(person.id, event.target.value)
+                  }
+                  className="rounded border border-app-border bg-app-base px-2 py-1 text-sm text-white"
+                  placeholder="Full name"
+                />
+                <input
+                  defaultValue={person.username}
+                  onBlur={(event) =>
+                    updatePersonUsername(person.id, event.target.value)
+                  }
+                  className="rounded border border-app-border bg-app-base px-2 py-1 text-sm text-white"
+                  placeholder="Username"
+                />
+                <input
+                  type="email"
+                  defaultValue={person.email}
+                  onBlur={(event) =>
+                    updatePersonEmail(person.id, event.target.value)
+                  }
+                  className="rounded border border-app-border bg-app-base px-2 py-1 text-sm text-white"
+                  placeholder="Email"
+                />
+                <select
+                  value={person.role}
+                  onChange={(event) =>
+                    updatePersonRole(person.id, event.target.value)
+                  }
+                  className="rounded border border-app-border bg-app-base px-2 py-1 text-sm text-white"
+                >
+                  {(roleOptions.includes(person.role)
+                    ? roleOptions
+                    : [person.role, ...roleOptions]
+                  ).map((role) => (
+                    <option key={role} value={role}>
+                      {role}
+                    </option>
+                  ))}
+                </select>
+                <div className="flex items-center gap-2 rounded border border-app-border bg-app-base px-2 py-1">
+                  <label className="text-xs text-app-muted">Task Color</label>
+                  <input
+                    type="color"
+                    value={normalizeAccentColor(person.accent_color)}
+                    onChange={(event) =>
+                      updatePersonAccentColor(person.id, event.target.value)
+                    }
+                    className="h-7 w-10 cursor-pointer rounded border border-app-border bg-transparent"
+                  />
+                </div>
+              </div>
+
+              <div className="mt-2 flex items-center justify-between">
+                <span className="text-xs text-app-muted">
+                  @{person.username}
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      togglePersonActive(person.id, person.is_active)
+                    }
+                    className="rounded border border-app-border px-2 py-1 text-xs text-yellow-300"
+                  >
+                    Deactivate
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => deletePerson(person.id)}
+                    className="rounded border border-app-border px-2 py-1 text-xs text-app-muted hover:text-brand"
+                  >
+                    Remove
+                  </button>
+                </div>
+              </div>
+            </article>
+          ))}
+
+          {activePeople.length === 0 ? (
+            <p className="rounded-lg border border-app-border bg-black px-3 py-2 text-xs text-app-muted">
+              No active people yet.
+            </p>
+          ) : null}
+
+          {inactivePeople.length > 0 ? (
+            <div className="rounded-lg border border-app-border bg-black/60 p-3">
+              <p className="mb-2 text-xs uppercase tracking-[0.12em] text-app-muted">
+                Inactive
+              </p>
+              <div className="space-y-2">
+                {inactivePeople.map((person) => (
+                  <div
+                    key={person.id}
+                    className="flex items-center justify-between rounded border border-app-border bg-app-base px-2 py-1"
+                  >
+                    <span className="text-sm text-app-muted">
+                      {person.full_name} ({person.email})
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        togglePersonActive(person.id, person.is_active)
+                      }
+                      className="rounded border border-app-border px-2 py-1 text-xs text-emerald-300"
+                    >
+                      Reactivate
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          <div className="rounded-lg border border-app-border bg-black p-3">
+            <p className="mb-2 text-xs uppercase tracking-[0.12em] text-app-muted">
+              Add Person
+            </p>
+            <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+              <input
+                value={personDraft.fullName}
+                onChange={(event) =>
+                  setPersonDraft((previous) => ({
+                    ...previous,
+                    fullName: event.target.value,
+                  }))
+                }
+                className="rounded border border-app-border bg-app-base px-2 py-1 text-sm text-white"
+                placeholder="Full name"
+              />
+              <input
+                value={personDraft.username}
+                onChange={(event) =>
+                  setPersonDraft((previous) => ({
+                    ...previous,
+                    username: event.target.value,
+                  }))
+                }
+                className="rounded border border-app-border bg-app-base px-2 py-1 text-sm text-white"
+                placeholder="Username"
+              />
+              <input
+                type="email"
+                value={personDraft.email}
+                onChange={(event) =>
+                  setPersonDraft((previous) => ({
+                    ...previous,
+                    email: event.target.value,
+                  }))
+                }
+                className="rounded border border-app-border bg-app-base px-2 py-1 text-sm text-white"
+                placeholder="Email"
+              />
+              <select
+                value={personDraft.role}
+                onChange={(event) =>
+                  setPersonDraft((previous) => ({
+                    ...previous,
+                    role: event.target.value,
+                  }))
+                }
+                className="rounded border border-app-border bg-app-base px-2 py-1 text-sm text-white"
+              >
+                {roleOptions.map((role) => (
+                  <option key={role} value={role}>
+                    {role}
+                  </option>
+                ))}
+              </select>
+              <div className="flex items-center gap-2 rounded border border-app-border bg-app-base px-2 py-1">
+                <label className="text-xs text-app-muted">Task Color</label>
+                <input
+                  type="color"
+                  value={personDraft.accentColor}
+                  onChange={(event) =>
+                    setPersonDraft((previous) => ({
+                      ...previous,
+                      accentColor: normalizeAccentColor(event.target.value),
+                    }))
+                  }
+                  className="h-7 w-10 cursor-pointer rounded border border-app-border bg-transparent"
+                />
+              </div>
+            </div>
+            <div className="mt-2 flex justify-end">
+              <button
+                type="button"
+                onClick={addPerson}
+                className="rounded border border-app-border px-3 py-1 text-xs text-white hover:border-brand"
+              >
+                Add Person
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  function meetingFormatSection() {
+    const sorted = [...data.meeting_format_segments].sort(
+      (a, b) => a.sort_order - b.sort_order,
+    );
+
+    return (
+      <section className="rounded-2xl border border-app-border bg-app-panel p-4">
+        <h2 className="font-heading text-xl text-white">Meeting Format</h2>
+        <p className="mt-1 text-xs text-app-muted">
+          Adjust meeting structure, durations, and sequence.
+        </p>
+
+        <div className="mt-3 space-y-2">
+          {sorted.map((segment) => (
+            <article
+              key={segment.id}
+              onDragOver={(event) => {
+                event.preventDefault();
+
+                if (!draggingFormatSegmentId) {
+                  return;
+                }
+
+                const rect = event.currentTarget.getBoundingClientRect();
+                const midpoint = rect.top + rect.height / 2;
+                const position = event.clientY < midpoint ? "above" : "below";
+                setFormatDropIndicator({ targetId: segment.id, position });
+              }}
+              onDrop={() => {
+                if (!draggingFormatSegmentId) {
+                  return;
+                }
+
+                void reorderFormatSegments(
+                  draggingFormatSegmentId,
+                  segment.id,
+                  formatDropIndicator?.targetId === segment.id
+                    ? formatDropIndicator.position
+                    : "above",
+                );
+                setDraggingFormatSegmentId(null);
+                setFormatDropIndicator(null);
+              }}
+              className={`relative grid grid-cols-1 gap-2 rounded-lg border bg-black p-3 transition-colors md:grid-cols-[26px_120px_1fr_90px_70px_110px] ${
+                draggingFormatSegmentId === segment.id
+                  ? "border-brand"
+                  : "border-app-border"
+              }`}
+            >
+              {formatDropIndicator?.targetId === segment.id ? (
+                <div
+                  className={`pointer-events-none absolute left-3 right-3 h-0.5 rounded-full bg-brand animate-pulse ${
+                    formatDropIndicator.position === "above"
+                      ? "-top-1"
+                      : "-bottom-1"
+                  }`}
+                />
+              ) : null}
+              <span
+                draggable
+                onDragStart={() => setDraggingFormatSegmentId(segment.id)}
+                onDragEnd={() => {
+                  setDraggingFormatSegmentId(null);
+                  setFormatDropIndicator(null);
+                }}
+                title="Drag to reorder"
+                className="select-none cursor-grab active:cursor-grabbing text-app-muted text-lg leading-none pt-0.5"
+              >
+                ::
+              </span>
+              <input
+                value={segment.segment_key}
+                readOnly
+                className="rounded border border-app-border bg-app-base px-2 py-1 text-xs text-app-muted"
+              />
+              <input
+                defaultValue={segment.label}
+                onBlur={(event) =>
+                  updateFormatLabel(segment.id, event.target.value)
+                }
+                className="rounded border border-app-border bg-app-base px-2 py-1 text-sm text-white"
+              />
+              <input
+                type="number"
+                min={1}
+                defaultValue={segment.duration_minutes}
+                onBlur={(event) =>
+                  updateFormatDuration(segment.id, event.target.value)
+                }
+                className="rounded border border-app-border bg-app-base px-2 py-1 text-sm text-white"
+              />
+              <button
+                type="button"
+                onClick={() =>
+                  toggleFormatEnabled(segment.id, segment.is_enabled)
+                }
+                className={`rounded px-2 py-1 text-xs font-semibold ${
+                  segment.is_enabled
+                    ? "bg-emerald-700 text-white"
+                    : "border border-app-border text-app-muted"
+                }`}
+              >
+                {segment.is_enabled ? "On" : "Off"}
+              </button>
+              <div className="flex items-center gap-1">
+                {!CORE_SEGMENT_KEYS.includes(segment.segment_key) ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      deleteCustomFormatSegment(segment.id, segment.segment_key)
+                    }
+                    className="rounded border border-app-border px-2 py-1 text-xs text-app-muted hover:text-brand"
+                  >
+                    Delete
+                  </button>
+                ) : null}
+              </div>
+            </article>
+          ))}
+
+          <div className="rounded-lg border border-app-border bg-black p-3">
+            <p className="mb-2 text-xs uppercase tracking-[0.12em] text-app-muted">
+              Add Custom Segment
+            </p>
+            <div className="grid grid-cols-1 gap-2 md:grid-cols-[1fr_1fr_90px_auto]">
+              <input
+                value={customSegmentDraft.key}
+                onChange={(event) =>
+                  setCustomSegmentDraft((previous) => ({
+                    ...previous,
+                    key: event.target.value,
+                  }))
+                }
+                placeholder="Segment key"
+                className="rounded border border-app-border bg-app-base px-2 py-1 text-sm text-white"
+              />
+              <input
+                value={customSegmentDraft.label}
+                onChange={(event) =>
+                  setCustomSegmentDraft((previous) => ({
+                    ...previous,
+                    label: event.target.value,
+                  }))
+                }
+                placeholder="Display label"
+                className="rounded border border-app-border bg-app-base px-2 py-1 text-sm text-white"
+              />
+              <input
+                type="number"
+                min={1}
+                value={customSegmentDraft.duration}
+                onChange={(event) =>
+                  setCustomSegmentDraft((previous) => ({
+                    ...previous,
+                    duration: event.target.value,
+                  }))
+                }
+                placeholder="Minutes"
+                className="rounded border border-app-border bg-app-base px-2 py-1 text-sm text-white"
+              />
+              <button
+                type="button"
+                onClick={addCustomFormatSegment}
+                className="rounded border border-app-border px-3 py-1 text-xs text-white hover:border-brand"
+              >
+                Add
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  function kpiInsightsSection() {
+    const insights = demoKpiInsights ?? kpiInsights;
+    const chartByDepartment = demoKpiInsights
+      ? Array.from(
+          demoKpiInsights.scorecardMetrics.reduce(
+            (acc, metric) => {
+              const department = ownerRoleByName.get(metric.owner) ?? "Member";
+              const current = acc.get(department) ?? [];
+              current.push(metric);
+              acc.set(department, current);
+              return acc;
+            },
+            new Map<string, KpiInsightsData["scorecardMetrics"]>(),
+          ),
+        ).map(([department, metrics]) => ({
+          department,
+          metrics: [...metrics].sort((a, b) =>
+            a.metric_name.localeCompare(b.metric_name),
+          ),
+        }))
+      : scorecardByDepartment;
+
+    return (
+      <section className="rounded-2xl border border-app-border bg-app-panel p-4 lg:col-span-2">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="font-heading text-xl text-white">
+              KPI Trends and Predictive Signals
+            </h2>
+            <p className="mt-1 text-xs text-app-muted">
+              Goal vs actual trend, owner consistency, and active off-track streaks.
+            </p>
+          </div>
+
+          {demoKpiInsights ? (
+            <button
+              type="button"
+              onClick={() => setDemoKpiInsights(null)}
+              className="rounded border border-app-border px-3 py-1 text-xs text-app-muted transition hover:text-white"
+            >
+              Clear Demo
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setDemoKpiInsights(buildDemoKpiInsights())}
+              className="rounded border border-[#e72027] bg-[#e72027]/15 px-3 py-1 text-xs font-semibold text-white transition hover:bg-[#e72027]/25"
+            >
+              Load Demo KPI Data
+            </button>
+          )}
+        </div>
+
+        {chartByDepartment.length > 0 ? (
+          <div className="mt-3 rounded-lg border border-app-border bg-black p-3">
+            <h3 className="text-xs uppercase tracking-[0.12em] text-app-muted">
+              Department Goal vs Actual
+            </h3>
+            <p className="mt-1 text-xs text-app-muted">
+              Each metric pair is normalized to its own high value for easier
+              side-by-side comparison.
+            </p>
+
+            <div className="mt-3 flex flex-wrap justify-start gap-3">
+              {chartByDepartment.map((group) => {
+                const totalMetrics = group.metrics.length;
+                const metGoalCount = group.metrics.filter(
+                  (metric) => metric.actual >= metric.goal,
+                ).length;
+                const metGoalPct =
+                  totalMetrics === 0 ? 0 : (metGoalCount / totalMetrics) * 100;
+                const targetPct =
+                  totalMetrics >= 4 ? 75 : totalMetrics === 3 ? 66 : 50;
+                const meetsTarget = metGoalPct >= targetPct;
+
+                return (
+                  <article
+                    key={group.department}
+                    className="w-max max-w-full rounded-lg border border-app-border bg-app-base p-3"
+                  >
+                    <div className="mb-2 flex items-start justify-between gap-2">
+                      <p className="text-sm font-semibold text-white">{group.department}</p>
+                      <p className="text-[10px] uppercase tracking-[0.08em] text-app-muted">
+                        {group.metrics.length} metric
+                        {group.metrics.length === 1 ? "" : "s"}
+                      </p>
+                    </div>
+                    <p
+                      className={`mb-2 text-[11px] ${
+                        meetsTarget ? "text-emerald-300" : "text-[#e72027]"
+                      }`}
+                    >
+                      {metGoalCount}/{totalMetrics} metrics meet goal ({Math.round(metGoalPct)}%)
+                    </p>
+
+                    <div className="overflow-x-auto pb-1">
+                      <div className="min-w-max rounded border border-app-border bg-black/60 p-2">
+                        <div className="flex min-h-56 items-end gap-3">
+                          {group.metrics.map((metric, metricIndex) => {
+                            const pairMax = Math.max(metric.goal, metric.actual, 1);
+                            const goalHeight = `${(metric.goal / pairMax) * 100}%`;
+                            const actualHeight = `${(metric.actual / pairMax) * 100}%`;
+                            const isFirstMetric = metricIndex === 0;
+                            const isLastMetric = metricIndex === group.metrics.length - 1;
+
+                            return (
+                              <div key={metric.id} className="group relative w-20 pt-12">
+                                <div
+                                  className={`pointer-events-none absolute top-1 z-50 w-44 rounded border border-app-border bg-app-panel px-2 py-1 text-[10px] text-white opacity-0 shadow-lg transition group-hover:opacity-100 ${
+                                    isFirstMetric
+                                      ? "left-0 translate-x-0"
+                                      : isLastMetric
+                                        ? "right-0 translate-x-0"
+                                        : "left-1/2 -translate-x-1/2"
+                                  }`}
+                                >
+                                  <p className="font-semibold">{metric.metric_name}</p>
+                                  <p className="text-app-muted">{metric.owner}</p>
+                                  <p className="text-rose-300">Goal: {metric.goal.toFixed(2)}</p>
+                                  <p className="text-emerald-300">Actual: {metric.actual.toFixed(2)}</p>
+                                </div>
+
+                                <div className="flex h-36 items-end justify-center gap-1">
+                                  <div
+                                    className="w-7 rounded-t bg-rose-500"
+                                    style={{ height: goalHeight }}
+                                    aria-label={`${metric.metric_name} goal ${metric.goal.toFixed(2)}`}
+                                  />
+                                  <div
+                                    className="w-7 rounded-t bg-emerald-500"
+                                    style={{ height: actualHeight }}
+                                    aria-label={`${metric.metric_name} actual ${metric.actual.toFixed(2)}`}
+                                  />
+                                </div>
+
+                                <p
+                                  title={metric.metric_name}
+                                  className="mt-2 truncate text-center text-[10px] text-app-muted"
+                                >
+                                  {metric.metric_name}
+                                </p>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+
+            <div className="mt-2 flex flex-wrap gap-3 text-xs">
+              <span className="rounded border border-app-border px-2 py-1 text-rose-300">
+                Goal
+              </span>
+              <span className="rounded border border-app-border px-2 py-1 text-emerald-300">
+                Actual
+              </span>
+              <span className="rounded border border-app-border px-2 py-1 text-app-muted">
+                Latest delta: {insights.latestDelta.toFixed(1)}
+              </span>
+              <span className="rounded border border-app-border px-2 py-1 text-app-muted">
+                Next delta prediction:{" "}
+                {insights.nextDeltaPrediction.toFixed(1)}
+              </span>
+            </div>
+          </div>
+        ) : (
+          <p className="mt-3 rounded-lg border border-app-border bg-black px-3 py-2 text-xs text-app-muted">
+            Not enough historical snapshots yet. Close at least 2 meetings to
+            unlock trend intelligence.
+          </p>
+        )}
+
+        <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+          <article className="rounded-lg border border-app-border bg-black p-3">
+            <h3 className="text-xs uppercase tracking-[0.12em] text-app-muted">
+              Owner Consistency
+            </h3>
+            <div className="mt-2 space-y-1">
+              {insights.ownerConsistency.slice(0, 6).map((entry) => (
+                <p key={entry.owner} className="text-sm text-white">
+                  {entry.owner}: {(entry.consistency * 100).toFixed(0)}%
+                  on-track
+                </p>
+              ))}
+              {insights.ownerConsistency.length === 0 ? (
+                <p className="text-xs text-app-muted">
+                  No historical owner data.
+                </p>
+              ) : null}
+            </div>
+          </article>
+
+          <article className="rounded-lg border border-app-border bg-black p-3">
+            <h3 className="text-xs uppercase tracking-[0.12em] text-app-muted">
+              Off-Track Streaks
+            </h3>
+            <div className="mt-2 space-y-1">
+              {insights.offTrackStreaks.map((entry) => (
+                <p
+                  key={`${entry.owner}-${entry.metricName}`}
+                  className="text-sm text-white"
+                >
+                  {entry.owner} - {entry.metricName}: {entry.current} meeting
+                  {entry.current === 1 ? "" : "s"}
+                </p>
+              ))}
+              {insights.offTrackStreaks.length === 0 ? (
+                <p className="text-xs text-app-muted">
+                  No active off-track streaks in recent snapshots.
+                </p>
+              ) : null}
+            </div>
+          </article>
+        </div>
+      </section>
+    );
+  }
+
+  function customSegmentSection(label: string) {
+    return (
+      <section className="rounded-2xl border border-app-border bg-app-panel p-6">
+        <h2 className="font-heading text-xl text-white">{label}</h2>
+        <p className="mt-2 text-sm text-app-muted">
+          This custom segment is part of your editable meeting structure.
+        </p>
+      </section>
+    );
+  }
+
+  const currentFormatSegment =
+    formatSegments[segmentIndex] ??
+    ({
+      segment_key: "Segue",
+      label: "Segue",
+      duration_minutes: 5,
+    } as const);
+  const currentSegment = currentFormatSegment.segment_key;
+
+  function advanceTimerSegment() {
+    setSegmentIndex((current) =>
+      Math.min(Math.max(formatSegments.length - 1, 0), current + 1),
+    );
+  }
+
+  async function saveMeetingFromTimer(elapsedSeconds: number) {
+    const isMissingDurationColumnError = (message?: string) =>
+      Boolean(
+        message &&
+          message.includes("total_duration_seconds") &&
+          message.toLowerCase().includes("schema cache"),
+      );
+
+    const nowIso = new Date().toISOString();
+    const meetingDate = nowIso.slice(0, 10);
+
+    if (activeMeeting && !activeMeeting.is_closed) {
+      let { error } = await supabase
+        .from("meetings")
+        .update({
+          is_closed: true,
+          ended_at: nowIso,
+          total_duration_seconds: elapsedSeconds,
+          updated_at: nowIso,
+          health_score: meetingHealth.score,
+        })
+        .eq("id", activeMeeting.id);
+
+      if (isMissingDurationColumnError(error?.message)) {
+        const retry = await supabase
+          .from("meetings")
+          .update({
+            is_closed: true,
+            ended_at: nowIso,
+            updated_at: nowIso,
+            health_score: meetingHealth.score,
+          })
+          .eq("id", activeMeeting.id);
+        error = retry.error;
+      }
+
+      if (error) {
+        window.alert(`Failed to save meeting: ${error.message}`);
+        throw error;
+      }
+
+      setData((previous) => ({
+        ...previous,
+        meetings: previous.meetings.map((meeting) =>
+          meeting.id === activeMeeting.id
+            ? {
+                ...meeting,
+                is_closed: true,
+                ended_at: nowIso,
+                total_duration_seconds: elapsedSeconds,
+                updated_at: nowIso,
+                health_score: meetingHealth.score,
+              }
+            : meeting,
+        ),
+      }));
+      return;
+    }
+
+    const startedAt = new Date(Date.now() - elapsedSeconds * 1000).toISOString();
+    let insertResult = await supabase
+      .from("meetings")
+      .insert({
+        label: `${meetingDate} Meeting`,
+        meeting_date: meetingDate,
+        started_at: startedAt,
+        ended_at: nowIso,
+        total_duration_seconds: elapsedSeconds,
+        is_closed: true,
+        health_score: meetingHealth.score,
+      })
+      .select("*")
+      .single();
+
+    if (isMissingDurationColumnError(insertResult.error?.message)) {
+      insertResult = await supabase
+        .from("meetings")
+        .insert({
+          label: `${meetingDate} Meeting`,
+          meeting_date: meetingDate,
+          started_at: startedAt,
+          ended_at: nowIso,
+          is_closed: true,
+          health_score: meetingHealth.score,
+        })
+        .select("*")
+        .single();
+    }
+
+    const { data: insertedMeeting, error } = insertResult;
+
+    if (error || !insertedMeeting) {
+      window.alert(`Failed to save meeting: ${error?.message ?? "Unknown error"}`);
+      throw error ?? new Error("Could not create meeting.");
+    }
+
+    setData((previous) => ({
+      ...previous,
+      meetings: [insertedMeeting, ...previous.meetings],
+    }));
+  }
+
+  async function updateMeetingLabel(id: string, rawLabel: string, meetingDate: string) {
+    const nextLabel = rawLabel.trim() || `${meetingDate} Meeting`;
+
+    const { error } = await supabase
+      .from("meetings")
+      .update({ label: nextLabel, updated_at: new Date().toISOString() })
+      .eq("id", id);
+
+    if (error) {
+      window.alert(`Failed to rename meeting: ${error.message}`);
+      return;
+    }
+
+    setData((previous) => ({
+      ...previous,
+      meetings: previous.meetings.map((meeting) =>
+        meeting.id === id
+          ? {
+              ...meeting,
+              label: nextLabel,
+              updated_at: new Date().toISOString(),
+            }
+          : meeting,
+      ),
+    }));
+  }
 
   return (
     <div className="min-h-screen bg-app-base p-4 md:p-6">
@@ -1823,7 +3702,24 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <MeetingTimer key={currentSegment} segment={currentSegment} />
+          {activeMeeting ? (
+            <span className="rounded border border-app-border px-2 py-1 text-xs text-app-muted">
+              {activeMeeting.label} - {activeMeeting.meeting_date}
+            </span>
+          ) : null}
+          <span className="rounded border border-app-border px-2 py-1 text-xs text-white">
+            Meeting Health: {meetingHealth.score}% ({meetingHealth.grade})
+          </span>
+          <span className="rounded border border-app-border px-2 py-1 text-xs text-app-muted">
+            IDS Solved: {meetingHealth.solvedIssues}/{meetingHealth.totalIssues}
+          </span>
+          <MeetingTimer
+            segmentLabel={currentFormatSegment.label}
+            durationMinutes={currentFormatSegment.duration_minutes}
+            canAdvanceSegment={segmentIndex < formatSegments.length - 1}
+            onAdvanceSegment={advanceTimerSegment}
+            onSaveMeeting={saveMeetingFromTimer}
+          />
           <span className="rounded border border-app-border px-2 py-1 text-xs text-emerald-400">
             Realtime Sync: Live
           </span>
@@ -1850,19 +3746,168 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
       </header>
 
       {!presentMode ? (
-        <main className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          {agendaSection()}
-          {scorecardSection()}
-          {issuesSection()}
-          {rocksSection()}
-          {todoTimelineSection()}
-          {meetingLinksSection()}
-          {concludeSection()}
+        <nav className="sticky top-2 z-20 mb-4 rounded-2xl border border-app-border bg-app-panel/95 p-3 backdrop-blur">
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-2 md:flex-row md:items-center">
+              <p className="text-xs uppercase tracking-[0.12em] text-app-muted">
+                Quick Navigation
+              </p>
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault();
+
+                  const firstMatch = filteredSections[0];
+                  if (firstMatch) {
+                    jumpToSection(firstMatch.id);
+                  }
+                }}
+                className="flex flex-1 gap-2"
+              >
+                <input
+                  value={sectionQuery}
+                  onChange={(event) => setSectionQuery(event.target.value)}
+                  placeholder="Search section (kpi, people, ids, links...)"
+                  className="w-full rounded border border-app-border bg-app-base px-2 py-1 text-sm text-white"
+                />
+                <button
+                  type="submit"
+                  className="rounded border border-app-border px-3 py-1 text-xs text-white hover:border-[#e72027]"
+                >
+                  Jump
+                </button>
+              </form>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              {DASHBOARD_SECTIONS.map((section) => (
+                <button
+                  key={section.id}
+                  type="button"
+                  onClick={() => jumpToSection(section.id)}
+                  className="rounded-full border border-app-border px-3 py-1 text-xs text-app-muted transition hover:border-[#e72027] hover:text-white"
+                >
+                  {section.label}
+                </button>
+              ))}
+            </div>
+
+            {sectionQuery.trim() ? (
+              <div className="flex flex-wrap gap-2">
+                {filteredSections.length > 0 ? (
+                  filteredSections.map((section) => (
+                    <button
+                      key={`search-${section.id}`}
+                      type="button"
+                      onClick={() => jumpToSection(section.id)}
+                      className="rounded border border-[#e72027]/70 bg-[#e72027]/15 px-2 py-1 text-[11px] text-white"
+                    >
+                      {section.label}
+                    </button>
+                  ))
+                ) : (
+                  <p className="text-xs text-app-muted">No section matches.</p>
+                )}
+              </div>
+            ) : null}
+          </div>
+        </nav>
+      ) : null}
+
+      {!presentMode ? (
+        <main className="space-y-4">
+          <div
+            id="kpi-insights"
+            ref={registerSectionRef("kpi-insights")}
+            className={`${sectionWrapperClass("kpi-insights")} lg:col-span-2`}
+          >
+            {kpiInsightsSection()}
+          </div>
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:items-start">
+            <div className="space-y-4">
+              <div
+                id="scorecard"
+                ref={registerSectionRef("scorecard")}
+                className={sectionWrapperClass("scorecard")}
+              >
+                {scorecardSection()}
+              </div>
+              <div
+                id="people"
+                ref={registerSectionRef("people")}
+                className={sectionWrapperClass("people")}
+              >
+                {peopleSection()}
+              </div>
+              <div
+                id="agenda"
+                ref={registerSectionRef("agenda")}
+                className={sectionWrapperClass("agenda")}
+              >
+                {agendaSection()}
+              </div>
+              <div
+                id="meeting-links"
+                ref={registerSectionRef("meeting-links")}
+                className={sectionWrapperClass("meeting-links")}
+              >
+                {meetingLinksSection()}
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div
+                id="todo-timeline"
+                ref={registerSectionRef("todo-timeline")}
+                className={sectionWrapperClass("todo-timeline")}
+              >
+                {todoTimelineSection()}
+              </div>
+              <div
+                id="issues"
+                ref={registerSectionRef("issues")}
+                className={sectionWrapperClass("issues")}
+              >
+                {issuesSection()}
+              </div>
+              <div
+                id="todo-list"
+                ref={registerSectionRef("todo-list")}
+                className={sectionWrapperClass("todo-list")}
+              >
+                {rocksSection()}
+              </div>
+              <div
+                id="meeting-format"
+                ref={registerSectionRef("meeting-format")}
+                className={sectionWrapperClass("meeting-format")}
+              >
+                {meetingFormatSection()}
+              </div>
+              <div
+                id="conclude"
+                ref={registerSectionRef("conclude")}
+                className={sectionWrapperClass("conclude")}
+              >
+                {concludeSection()}
+              </div>
+              <div
+                id="past-meetings"
+                ref={registerSectionRef("past-meetings")}
+                className={sectionWrapperClass("past-meetings")}
+              >
+                {pastMeetingsSection()}
+              </div>
+            </div>
+          </div>
         </main>
       ) : (
         <PresentationSlider
           currentIndex={segmentIndex}
           onIndexChange={setSegmentIndex}
+          segments={formatSegments.map((segment) => ({
+            id: segment.id,
+            label: segment.label,
+          }))}
         >
           {currentSegment === "Segue" && agendaSection()}
           {currentSegment === "Scorecard" && scorecardSection()}
@@ -1872,6 +3917,8 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
           {currentSegment === "To-Dos" && rocksSection()}
           {currentSegment === "IDS" && issuesSection()}
           {currentSegment === "Conclude" && concludeSection()}
+          {!CORE_SEGMENT_KEYS.includes(currentSegment) &&
+            customSegmentSection(currentFormatSegment.label)}
         </PresentationSlider>
       )}
     </div>
