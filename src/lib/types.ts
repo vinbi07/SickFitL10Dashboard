@@ -7,6 +7,51 @@ export type SnapshotType = "interim" | "final";
 export type ParkingLotStatus = "Open" | "Carried" | "Resolved";
 export type CalendarSyncStatus = "scheduled" | "cancelled";
 
+export interface ShopifyRecentOrder {
+  id: number;
+  name: string;
+  totalPrice: number;
+  currencyCode: string;
+  createdAt: string;
+}
+
+export interface ShopifyFinancialSummary {
+  storeDomain: string;
+  orderCount: number;
+  revenue: number;
+  aov: number;
+  currencyCode: string;
+  fetchedAt: string;
+  recentOrders: ShopifyRecentOrder[];
+}
+
+export interface ShopifyPeriodMetrics {
+  revenue: number;
+  orderCount: number;
+  aov: number;
+  startDate: string;
+  endDate: string;
+}
+
+export interface ShopifyMetricWithPeriod {
+  metricName: "revenue" | "orders" | "aov";
+  current: ShopifyPeriodMetrics;
+  previous: ShopifyPeriodMetrics;
+  percentChange: number;
+  target?: number;
+}
+
+export interface ShopifyTargetRow {
+  id: string;
+  metric_name: string;
+  target_value: number;
+  target_period: "daily" | "7day" | "30day" | "annual";
+  currency_code: string;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface ScorecardRow {
   id: string;
   metric_name: string;
@@ -214,4 +259,10 @@ export interface DashboardData {
   calendar_sync_events: CalendarSyncEventRow[];
   people: PersonRow[];
   meeting_format_segments: MeetingFormatSegmentRow[];
+  shopify_financials: ShopifyFinancialSummary | null;
+  shopify_targets: ShopifyTargetRow[];
+  shopify_period_metrics?: {
+    sevenDay: ShopifyMetricWithPeriod[];
+    thirtyDay: ShopifyMetricWithPeriod[];
+  } | null;
 }

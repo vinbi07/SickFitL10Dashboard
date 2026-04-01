@@ -250,3 +250,41 @@ export async function carryoverItemsToMeetingAction(formData: FormData) {
     },
   };
 }
+
+export async function updateShopifyTargetAction(
+  metricName: string,
+  targetPeriod: string,
+  targetValue: number,
+) {
+  const supabase = await createSupabaseServerClient();
+
+  const { data: existing } = await supabase
+    .from("shopify_targets")
+    .select("id")
+    .eq("metric_name", metricName)
+    .eq("target_period", targetPeriod)
+    .single();
+
+  if (existing) {
+    // Update existing target
+    await supabase
+      .from("shopify_targets")
+      .update({
+        target_value: targetValue,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", existing.id);
+  } else {
+    // Create new target
+    await supabase.from("shopify_targets").insert({
+      metric_name: metricName,
+      target_period: targetPeriod,
+      target_value: targetValue,
+      currency_code: "USD",
+      updated_at: new Date().toISOString(),
+    });
+  }
+
+  revalidatePath("/dashboard");
+  return { ok: true };
+}

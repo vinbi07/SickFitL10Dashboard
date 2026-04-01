@@ -25,7 +25,6 @@ import type {
   TodoRow,
 } from "@/lib/types";
 
-type TableName = keyof DashboardData;
 type TableRecordMap = {
   scorecard: ScorecardRow;
   rocks: RockRow;
@@ -45,6 +44,8 @@ type TableRecordMap = {
   people: PersonRow;
   meeting_format_segments: MeetingFormatSegmentRow;
 };
+
+type RealtimeTableName = keyof TableRecordMap;
 
 type SetData = Dispatch<SetStateAction<DashboardData>>;
 
@@ -67,7 +68,7 @@ function applyTableChange<T extends { id: string }>(
   return current;
 }
 
-function createHandler<K extends TableName>(setData: SetData, table: K) {
+function createHandler<K extends RealtimeTableName>(setData: SetData, table: K) {
   return (payload: RealtimePostgresChangesPayload<TableRecordMap[K]>) => {
     setData((previous) => ({
       ...previous,

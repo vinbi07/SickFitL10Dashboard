@@ -3,12 +3,18 @@
 import Image from "next/image";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { logoutAction } from "@/app/login/actions";
+import { updateShopifyTargetAction } from "@/app/dashboard/actions";
 import { MeetingTimer } from "@/components/meeting/MeetingTimer";
 import { PresentationSlider } from "@/components/meeting/PresentationSlider";
 import { OWNERS, OWNER_ROLES, ROLE_OPTIONS } from "@/lib/constants/agenda";
 import { useRealtimeDashboard } from "@/lib/realtime/useRealtimeDashboard";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
-import type { DashboardData, IssuePriority, IssueStatus } from "@/lib/types";
+import type {
+  DashboardData,
+  IssuePriority,
+  IssueStatus,
+  ShopifyFinancialSummary,
+} from "@/lib/types";
 
 interface DashboardClientProps {
   initialData: DashboardData;
@@ -37,6 +43,11 @@ const DASHBOARD_SECTIONS = [
     id: "kpi-insights",
     label: "KPI Insights",
     keywords: ["kpi", "trend", "prediction", "signals"],
+  },
+  {
+    id: "financials",
+    label: "Financials",
+    keywords: ["financial", "shopify", "grants", "revenue", "profit"],
   },
   {
     id: "meeting-format",
@@ -114,6 +125,23 @@ type KpiInsightsData = {
   }>;
   latestDelta: number;
   nextDeltaPrediction: number;
+};
+
+type FinancialSnapshot = {
+  label: string;
+  actual: number;
+  target: number;
+};
+
+type FinancialSubsection = {
+  id: string;
+  title: string;
+  statusLabel: string;
+  description: string;
+  accentClass: string;
+  snapshots: FinancialSnapshot[];
+  summary: Array<{ label: string; value: string }>;
+  note: string;
 };
 
 function normalizeUrl(rawValue: string) {
@@ -365,10 +393,235 @@ function buildDemoKpiInsights(): KpiInsightsData {
   };
 }
 
+function formatPercent(value: number) {
+  return `${value.toFixed(1)}%`;
+}
+
+function formatFinancialValue(value: number, label: string) {
+  const normalizedLabel = label.toLowerCase();
+
+  if (normalizedLabel.includes("%")) {
+    return formatPercent(value);
+  }
+
+  if (normalizedLabel.includes("x")) {
+    return `${value.toFixed(1)}x`;
+  }
+
+  if (
+    /revenue|profit|margin|gmv|shopify|orders|aov|retention|ebitda|cash|mrr|arr|pipeline/.test(
+      normalizedLabel,
+    )
+  ) {
+    if (value >= 1000) {
+      return `${Math.round(value / 1000)}k`;
+    }
+
+    return value % 1 === 0
+      ? value.toLocaleString("en-US", { maximumFractionDigits: 0 })
+      : value.toLocaleString("en-US", { maximumFractionDigits: 1 });
+  }
+
+  return value.toLocaleString("en-US", { maximumFractionDigits: 0 });
+}
+
+function buildFinancialSubsections(
+  scorecardMetrics: Array<{
+    metric_name: string;
+    goal: number;
+    actual: number;
+    owner: string;
+  }>,
+  shopifyFinancials: ShopifyFinancialSummary | null,
+): FinancialSubsection[] {
+  const formatMoney = (
+    value: number,
+    currencyCode: string,
+    maximumFractionDigits = 0,
+  ) =>
+    new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: currencyCode,
+      maximumFractionDigits,
+    }).format(value);
+
+  const financeMetrics = scorecardMetrics.filter((metric) => {
+    const value = metric.metric_name.toLowerCase();
+    return /revenue|profit|margin|gmv|shopify|orders|aov|retention|ebitda|cash|mrr|arr/.test(
+      value,
+    );
+  });
+
+  const shopifyMetrics =
+    financeMetrics.length > 0
+      ? financeMetrics
+      : [
+          {
+            metric_name: "Shopify Revenue",
+            goal: 460000,
+            actual: 421000,
+            owner: "Finance",
+          },
+          { metric_name: "Orders", goal: 8200, actual: 7680, owner: "Finance" },
+          { metric_name: "AOV", goal: 58, actual: 61, owner: "Finance" },
+          {
+            metric_name: "Gross Margin",
+            goal: 54,
+            actual: 50,
+            owner: "Finance",
+          },
+        ];
+
+  const completed = shopifyMetrics.filter(
+    (metric) => metric.actual >= metric.goal,
+  ).length;
+  const primaryMetric =
+    financeMetrics.find((metric) =>
+      /revenue|profit|gmv|mrr|arr|cash|shopify/.test(
+        metric.metric_name.toLowerCase(),
+      ),
+    ) ?? shopifyMetrics[0];
+  const averageCompletion =
+    shopifyMetrics.length === 0
+      ? 0
+      : shopifyMetrics.reduce(
+          (sum, metric) =>
+            sum + Math.min(1, metric.actual / Math.max(metric.goal, 1)),
+          0,
+        ) / shopifyMetrics.length;
+
+  const liveOrderSnapshots = shopifyFinancials?.recentOrders.length
+    ? shopifyFinancials.recentOrders.slice(0, 3).map((order) => ({
+        label: order.name,
+        actual: order.totalPrice,
+        target: shopifyFinancials.aov || order.totalPrice || 1,
+      }))
+    : null;
+
+  const shopifySummary = shopifyFinancials
+    ? [
+        {
+          label: "Revenue",
+          value: formatMoney(
+            shopifyFinancials.revenue,
+            shopifyFinancials.currencyCode,
+          ),
+        },
+        {
+          label: "AOV",
+          value: formatMoney(
+            shopifyFinancials.aov,
+            shopifyFinancials.currencyCode,
+          ),
+        },
+        {
+          label: "Orders",
+          value: String(shopifyFinancials.orderCount),
+        },
+      ]
+    : [
+        {
+          label: primaryMetric.metric_name,
+          value: formatFinancialValue(
+            primaryMetric.actual,
+            primaryMetric.metric_name,
+          ),
+        },
+        {
+          label: "Goal attainment",
+          value: formatPercent(averageCompletion * 100),
+        },
+        { label: "Tracked metrics", value: String(shopifyMetrics.length) },
+      ];
+
+  const shopifySnapshots =
+    liveOrderSnapshots ??
+    shopifyMetrics.map((metric, index) => {
+      const label =
+        index === 0
+          ? metric.metric_name
+          : metric.metric_name.replace(/^Shopify\s+/i, "");
+
+      return {
+        label,
+        actual: metric.actual,
+        target: metric.goal,
+      };
+    });
+
+  const shopifyDescription = shopifyFinancials
+    ? `Live Shopify orders from ${shopifyFinancials.storeDomain} with revenue and AOV computed from transactional data.`
+    : "Scorecard-derived commerce metrics for revenue and order health. This lane is structured for Shopify, but it is not wired to the Shopify API yet.";
+
+  const shopifyNote = shopifyFinancials
+    ? `Revenue = sum of order total_price. AOV = revenue / order count. Last sync ${new Date(shopifyFinancials.fetchedAt).toLocaleString()}.`
+    : "No Shopify API key is needed for this version because the chart uses existing dashboard scorecard values and built-in placeholders only.";
+
+  const grantsSnapshots: FinancialSnapshot[] = [
+    { label: "Grant pipeline", actual: 0, target: 1 },
+    { label: "Applications", actual: 0, target: 1 },
+    { label: "Awards", actual: 0, target: 1 },
+  ];
+
+  return [
+    {
+      id: "shopify",
+      title: "Shopify",
+      statusLabel: shopifyFinancials
+        ? `${shopifyFinancials.orderCount} orders live`
+        : `${completed}/${shopifyMetrics.length} metrics on target`,
+      description: shopifyDescription,
+      accentClass: "border-emerald-700 bg-emerald-500/10 text-emerald-200",
+      snapshots: shopifySnapshots,
+      summary: shopifySummary,
+      note: shopifyNote,
+    },
+    {
+      id: "grants",
+      title: "Grants",
+      statusLabel: "Coming soon",
+      description:
+        "Reserved for data that will arrive from another repo or project once the grants pipeline is connected.",
+      accentClass: "border-[#e72027]/70 bg-[#e72027]/10 text-white",
+      snapshots: grantsSnapshots,
+      summary: [
+        { label: "Source", value: "External repo" },
+        { label: "Status", value: "Planned" },
+        { label: "Visibility", value: "Pending" },
+      ],
+      note: "This panel is intentionally scoped as a placeholder so the section can stay full width without blocking future work.",
+    },
+    {
+      id: "add-another",
+      title: "Add another financials subsection",
+      statusLabel: "Expandable",
+      description:
+        "Reserve space for another finance-specific lane such as subscriptions, donations, or unit economics.",
+      accentClass: "border-app-border bg-app-base text-app-muted",
+      snapshots: [
+        { label: "New lane", actual: 1, target: 1 },
+        { label: "Layout", actual: 1, target: 1 },
+        { label: "Ready", actual: 1, target: 1 },
+      ],
+      summary: [
+        { label: "Template", value: "Ready" },
+        { label: "Growth", value: "Open" },
+        { label: "Fit", value: "Flexible" },
+      ],
+      note: "Use this lane to add more financial categories later without changing the full-width section structure.",
+    },
+  ];
+}
+
 export function DashboardClient({ initialData }: DashboardClientProps) {
   const [data, setData] = useState(initialData);
   const [presentMode, setPresentMode] = useState(false);
   const [segmentIndex, setSegmentIndex] = useState(0);
+  const [shopifyPeriod, setShopifyPeriod] = useState<"7day" | "30day">("7day");
+  const [editingTarget, setEditingTarget] = useState<{
+    metricName: string;
+    value: string;
+  } | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [commentText, setCommentText] = useState<Record<string, string>>({});
   const [issueDraft, setIssueDraft] = useState<{
@@ -809,6 +1062,10 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
       ),
     }));
   }, [data.scorecard, ownerRoleByName]);
+  const financialSubsections = useMemo(
+    () => buildFinancialSubsections(data.scorecard, data.shopify_financials),
+    [data.scorecard, data.shopify_financials, shopifyPeriod],
+  );
 
   useEffect(() => {
     if (formatSegments.length === 0) {
@@ -3558,6 +3815,222 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
     );
   }
 
+  function financialsSection() {
+    const periodMetrics =
+      shopifyPeriod === "7day"
+        ? data.shopify_period_metrics?.sevenDay
+        : data.shopify_period_metrics?.thirtyDay;
+    const targets = data.shopify_targets || [];
+    const currencyCode = data.shopify_financials?.currencyCode || "USD";
+
+    const formatMoney = (value: number) =>
+      new Intl.NumberFormat("en-US", {
+        style: "currency",
+        currency: currencyCode,
+        maximumFractionDigits: value % 1 === 0 ? 0 : 2,
+      }).format(value);
+
+    const getTargetForMetric = (metricName: string) => {
+      const target = targets.find(
+        (t) =>
+          t.metric_name === metricName && t.target_period === shopifyPeriod,
+      );
+      return target?.target_value ?? null;
+    };
+
+    const periodLabel =
+      shopifyPeriod === "7day" ? "Last 7 Days" : "Last 30 Days";
+
+    return (
+      <section className="rounded-2xl border border-app-border bg-app-panel p-4 lg:col-span-2">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h2 className="font-heading text-xl text-white">Financials</h2>
+            <p className="mt-1 text-xs text-app-muted">
+              Real-time Shopify metrics with period-over-period comparison
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setShopifyPeriod("7day")}
+              className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
+                shopifyPeriod === "7day"
+                  ? "border-brand bg-brand/20 text-brand"
+                  : "border border-app-border text-app-muted hover:text-white"
+              }`}
+            >
+              7 Days
+            </button>
+            <button
+              onClick={() => setShopifyPeriod("30day")}
+              className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
+                shopifyPeriod === "30day"
+                  ? "border-brand bg-brand/20 text-brand"
+                  : "border border-app-border text-app-muted hover:text-white"
+              }`}
+            >
+              30 Days
+            </button>
+          </div>
+        </div>
+
+        {periodMetrics && periodMetrics.length > 0 ? (
+          <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {periodMetrics.map((metric) => {
+              const target = getTargetForMetric(metric.metricName);
+              const currentValue =
+                metric.metricName === "revenue"
+                  ? metric.current.revenue
+                  : metric.metricName === "orders"
+                    ? metric.current.orderCount
+                    : metric.current.aov;
+              const percentChange = metric.percentChange;
+              const isPositive = percentChange >= 0;
+              const metricLabel =
+                metric.metricName === "revenue"
+                  ? "Revenue"
+                  : metric.metricName === "orders"
+                    ? "Orders"
+                    : "Average Order Value";
+
+              return (
+                <div
+                  key={metric.metricName}
+                  className="rounded-xl border border-app-border bg-black/60 p-4"
+                >
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.08em] text-app-muted">
+                        {metricLabel}
+                      </p>
+                      <p className="mt-2 text-2xl font-bold text-white">
+                        {metric.metricName === "revenue"
+                          ? formatMoney(currentValue)
+                          : metric.metricName === "orders"
+                            ? Math.round(currentValue)
+                            : formatMoney(currentValue)}
+                      </p>
+                    </div>
+                    <div
+                      className={`rounded-full px-2 py-1 text-xs font-semibold flex items-center gap-1 ${
+                        isPositive
+                          ? "bg-emerald-500/20 text-emerald-300"
+                          : "bg-rose-500/20 text-rose-300"
+                      }`}
+                    >
+                      {isPositive ? "↑" : "↓"}{" "}
+                      {Math.abs(percentChange).toFixed(1)}%
+                    </div>
+                  </div>
+
+                  <div className="mt-4">
+                    {editingTarget?.metricName === metric.metricName &&
+                    editingTarget ? (
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-app-muted">Target:</span>
+                        <input
+                          type="number"
+                          value={editingTarget.value}
+                          onChange={(e) =>
+                            setEditingTarget({
+                              ...editingTarget,
+                              value: e.target.value,
+                            })
+                          }
+                          className="h-6 w-16 rounded border border-brand bg-black/70 px-2 text-right text-xs text-white placeholder-app-muted focus:outline-none focus:ring-2 focus:ring-brand"
+                          autoFocus
+                        />
+                        <button
+                          onClick={async () => {
+                            const newValue = Number(editingTarget.value);
+                            if (newValue > 0) {
+                              await updateShopifyTargetAction(
+                                metric.metricName,
+                                shopifyPeriod,
+                                newValue,
+                              );
+                              setEditingTarget(null);
+                              // Optionally refetch data here
+                            }
+                          }}
+                          className="text-xs font-medium text-emerald-400 hover:text-emerald-300"
+                        >
+                          ✓
+                        </button>
+                        <button
+                          onClick={() => setEditingTarget(null)}
+                          className="text-xs font-medium text-app-muted hover:text-white"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ) : (
+                      <div
+                        onClick={() =>
+                          setEditingTarget({
+                            metricName: metric.metricName,
+                            value: String(target ?? 0),
+                          })
+                        }
+                        className="flex cursor-pointer items-center justify-between text-xs transition hover:opacity-80"
+                      >
+                        <span className="text-app-muted">Target:</span>
+                        <span className="text-white font-medium">
+                          {target
+                            ? metric.metricName === "revenue"
+                              ? formatMoney(target)
+                              : metric.metricName === "orders"
+                                ? Math.round(target)
+                                : formatMoney(target)
+                            : "Not set"}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="mt-2 text-xs text-app-muted">
+                    Prior period:{" "}
+                    {metric.metricName === "revenue"
+                      ? formatMoney(metric.previous.revenue)
+                      : metric.metricName === "orders"
+                        ? Math.round(metric.previous.orderCount)
+                        : formatMoney(metric.previous.aov)}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="mt-6 rounded-xl border border-dashed border-app-border bg-app-base p-8 text-center">
+            <p className="text-sm text-app-muted">
+              Loading Shopify metrics for {periodLabel.toLowerCase()}...
+            </p>
+          </div>
+        )}
+
+        <div className="mt-6 rounded-xl border border-app-border bg-black/40 p-4">
+          <p className="text-xs uppercase tracking-[0.08em] text-app-muted">
+            Coming Soon
+          </p>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <div>
+              <p className="text-sm font-medium text-white">Grants Pipeline</p>
+              <p className="mt-1 text-xs text-app-muted">
+                Grant metrics and applications tracking
+              </p>
+            </div>
+            <div>
+              <p className="text-sm font-medium text-white">Add Another Lane</p>
+              <p className="mt-1 text-xs text-app-muted">
+                Subscriptions, donations, or unit economics
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
   function customSegmentSection(label: string) {
     return (
       <section className="rounded-2xl border border-app-border bg-app-panel p-6">
@@ -3862,6 +4335,13 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
             className={`${sectionWrapperClass("kpi-insights")} lg:col-span-2`}
           >
             {kpiInsightsSection()}
+          </div>
+          <div
+            id="financials"
+            ref={registerSectionRef("financials")}
+            className={`${sectionWrapperClass("financials")} lg:col-span-2`}
+          >
+            {financialsSection()}
           </div>
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:items-start">
             <div className="space-y-4">

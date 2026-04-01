@@ -1,4 +1,5 @@
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getShopifyFinancialSummary, getShopifyPeriodMetrics } from "@/lib/shopify/dashboard";
 import type { DashboardData } from "@/lib/types";
 
 type SupabaseSelectResult<T> = {
@@ -42,6 +43,9 @@ export async function getDashboardData(): Promise<DashboardData> {
     calendarSyncEvents,
     people,
     meetingFormatSegments,
+    shopifyTargets,
+    shopifyFinancials,
+    shopifyPeriodMetrics,
   ] = await Promise.all([
     supabase.from("scorecard").select("*").order("created_at", { ascending: true }),
     supabase.from("rocks").select("*").eq("is_archived", false).order("created_at", { ascending: true }),
@@ -87,6 +91,9 @@ export async function getDashboardData(): Promise<DashboardData> {
       .from("meeting_format_segments")
       .select("*")
       .order("sort_order", { ascending: true }),
+    supabase.from("shopify_targets").select("*").order("updated_at", { ascending: false }),
+    getShopifyFinancialSummary(),
+    getShopifyPeriodMetrics(),
   ]);
 
   return {
@@ -107,5 +114,8 @@ export async function getDashboardData(): Promise<DashboardData> {
     calendar_sync_events: dataOrEmpty(calendarSyncEvents, true),
     people: dataOrEmpty(people, true),
     meeting_format_segments: dataOrEmpty(meetingFormatSegments, true),
+    shopify_financials: shopifyFinancials,
+    shopify_targets: dataOrEmpty(shopifyTargets, true),
+    shopify_period_metrics: shopifyPeriodMetrics,
   };
 }
