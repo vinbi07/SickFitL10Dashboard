@@ -2870,9 +2870,10 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
             const hasValidTimes =
               Number.isFinite(started.getTime()) &&
               Boolean(ended && Number.isFinite(ended.getTime()));
+            const storedDurationSeconds = meeting.total_duration_seconds ?? 0;
             const durationSeconds =
-              meeting.total_duration_seconds > 0
-                ? meeting.total_duration_seconds
+              storedDurationSeconds > 0
+                ? storedDurationSeconds
                 : hasValidTimes && ended
                   ? Math.max(
                       0,
