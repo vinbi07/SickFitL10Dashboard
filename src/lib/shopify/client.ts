@@ -41,7 +41,7 @@ function buildOrdersUrl(pageInfo?: string) {
 
 function getNextPageInfo(linkHeader: string | null) {
   if (!linkHeader) {
-    return null;
+    return undefined;
   }
 
   const nextLink = linkHeader
@@ -50,18 +50,18 @@ function getNextPageInfo(linkHeader: string | null) {
     .find((part) => part.includes('rel="next"'));
 
   if (!nextLink) {
-    return null;
+    return undefined;
   }
 
   const match = nextLink.match(/<([^>]+)>/);
   if (!match) {
-    return null;
+    return undefined;
   }
 
   try {
     return new URL(match[1]).searchParams.get("page_info");
   } catch {
-    return null;
+    return undefined;
   }
 }
 
