@@ -2244,6 +2244,14 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                   {rock.status}
                 </button>
                 <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => void moveRockToTodo(rock.id)}
+                    className="rounded border border-app-border px-2 py-1 text-xs text-app-muted transition hover:text-white"
+                    title="Move to Backlog"
+                  >
+                    Move to Backlog
+                  </button>
                   {saveStatusBadge(`rock-${rock.id}`)}
                   <button
                     type="button"
@@ -2373,6 +2381,14 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                   </div>
 
                   <div className="ml-3 flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void moveTodoToRock(todo.id)}
+                      className="rounded border border-app-border px-2 py-1 text-xs text-app-muted transition hover:text-white"
+                      title="Move to What's This Week"
+                    >
+                      Move to What&apos;s This Week
+                    </button>
                     {saveStatusBadge(`todo-${todo.id}`)}
                     <input
                       type="checkbox"
