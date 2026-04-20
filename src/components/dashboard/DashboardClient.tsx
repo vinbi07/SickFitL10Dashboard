@@ -34,6 +34,7 @@ const CORE_SEGMENT_KEYS = [
   "Headlines",
   "Links",
   "To-Dos",
+  "Task Pulse + Calendar",
   "IDS",
   "Conclude",
 ];
@@ -4746,6 +4747,7 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
           {currentSegment === "Headlines" && agendaSection()}
           {currentSegment === "Links" && meetingLinksSection()}
           {currentSegment === "To-Dos" && rocksSection()}
+          {currentSegment === "Task Pulse + Calendar" && todoTimelineSection()}
           {currentSegment === "IDS" && issuesSection()}
           {currentSegment === "Conclude" && concludeSection()}
           {!CORE_SEGMENT_KEYS.includes(currentSegment) &&
