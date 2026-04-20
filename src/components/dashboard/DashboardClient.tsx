@@ -940,7 +940,9 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
     const withDate = allTasks
       .filter((task) => Boolean(task.due_date))
       .sort(compareTasks);
-    const withoutDate = allTasks.filter((task) => !task.due_date).sort(compareTasks);
+    const withoutDate = allTasks
+      .filter((task) => !task.due_date)
+      .sort(compareTasks);
 
     const grouped = withDate.reduce<Record<string, typeof withDate>>(
       (acc, task) => {
@@ -960,7 +962,11 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
 
     const pulseSequence = [...withDate, ...withoutDate].sort(compareTasks);
     const today = new Date();
-    const calendarDays: Array<{ key: string; label: string; tasks: typeof withDate }> = [];
+    const calendarDays: Array<{
+      key: string;
+      label: string;
+      tasks: typeof withDate;
+    }> = [];
     for (let offset = 0; offset < 14; offset += 1) {
       const day = new Date(today);
       day.setDate(today.getDate() + offset);
@@ -1343,7 +1349,7 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
         ? "Saving..."
         : status === "saved"
           ? "Saved"
-          : errorMessage ?? "Failed - retry";
+          : (errorMessage ?? "Failed - retry");
     const className =
       status === "saving"
         ? "border-app-border text-app-muted"
@@ -2688,9 +2694,12 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
   function todoTimelineSection() {
     return (
       <section className="rounded-2xl border border-app-border bg-app-panel p-4">
-        <h2 className="font-heading text-xl text-white">Task Pulse + Calendar</h2>
+        <h2 className="font-heading text-xl text-white">
+          Task Pulse + Calendar
+        </h2>
         <p className="mt-1 text-xs text-app-muted">
-          High-level pulse sequencing plus a 14-day health calendar for execution visibility.
+          High-level pulse sequencing plus a 14-day health calendar for
+          execution visibility.
         </p>
 
         <div className="mt-3 flex flex-wrap gap-2">
@@ -2734,7 +2743,9 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                         {healthLabel(task.healthColor)}
                       </span>
                     </div>
-                    <p className="line-clamp-2 text-sm text-white">{task.text}</p>
+                    <p className="line-clamp-2 text-sm text-white">
+                      {task.text}
+                    </p>
                     <p className="mt-1 text-xs text-app-muted">
                       {task.owner}
                       {task.due_date
@@ -2779,7 +2790,9 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                         className={`rounded border px-2 py-1 ${healthBlockClassName(task.healthColor)}`}
                         style={taskAccentStyle(task.owner)}
                       >
-                        <p className="truncate text-xs text-white">{task.text}</p>
+                        <p className="truncate text-xs text-white">
+                          {task.text}
+                        </p>
                         <p className="mt-0.5 text-[10px] text-app-muted">
                           {task.owner}
                         </p>
@@ -4720,7 +4733,7 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
         </main>
       ) : (
         <PresentationSlider
-            currentIndex={safeSegmentIndex}
+          currentIndex={safeSegmentIndex}
           onIndexChange={setSegmentIndex}
           segments={formatSegments.map((segment) => ({
             id: segment.id,
