@@ -43,6 +43,9 @@ export async function getDashboardData(): Promise<DashboardData> {
     calendarSyncEvents,
     people,
     meetingFormatSegments,
+    tasks,
+    taskHealthSummary,
+    memberPerformanceMetrics,
     shopifyTargets,
     shopifyFinancials,
     shopifyPeriodMetrics,
@@ -91,6 +94,15 @@ export async function getDashboardData(): Promise<DashboardData> {
       .from("meeting_format_segments")
       .select("*")
       .order("sort_order", { ascending: true }),
+    supabase.from("tasks").select("*").order("created_at", { ascending: true }),
+    supabase
+      .from("task_health_summary")
+      .select("*")
+      .order("owner", { ascending: true }),
+    supabase
+      .from("member_performance_metrics")
+      .select("*")
+      .order("owner", { ascending: true }),
     supabase.from("shopify_targets").select("*").order("updated_at", { ascending: false }),
     getShopifyFinancialSummary(),
     getShopifyPeriodMetrics(),
@@ -114,6 +126,9 @@ export async function getDashboardData(): Promise<DashboardData> {
     calendar_sync_events: dataOrEmpty(calendarSyncEvents, true),
     people: dataOrEmpty(people, true),
     meeting_format_segments: dataOrEmpty(meetingFormatSegments, true),
+    tasks: dataOrEmpty(tasks, true),
+    task_health_summary: dataOrEmpty(taskHealthSummary, true),
+    member_performance_metrics: dataOrEmpty(memberPerformanceMetrics, true),
     shopify_financials: shopifyFinancials,
     shopify_targets: dataOrEmpty(shopifyTargets, true),
     shopify_period_metrics: shopifyPeriodMetrics,

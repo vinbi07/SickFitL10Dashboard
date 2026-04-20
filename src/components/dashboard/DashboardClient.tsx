@@ -701,7 +701,7 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
   const [demoKpiInsights, setDemoKpiInsights] =
     useState<KpiInsightsData | null>(null);
   const [saveStatusByKey, setSaveStatusByKey] = useState<
-    Record<string, SaveState>
+    Record<string, { state: SaveState; errorMessage?: string }>
   >({});
   const sectionRefs = useRef<
     Partial<Record<DashboardSectionId, HTMLElement | null>>
@@ -765,6 +765,45 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
       boxShadow: `0 0 0 1px ${color}33 inset`,
     };
   };
+  const taskHealthBySource = useMemo(() => {
+    const map = new Map<string, (typeof data.task_health_summary)[number]>();
+
+    for (const summary of data.task_health_summary) {
+      map.set(`${summary.source_table}:${summary.source_id}`, summary);
+    }
+
+    return map;
+  }, [data.task_health_summary]);
+  const healthPillClassName = (healthColor?: string | null) => {
+    if (healthColor === "green") {
+      return "border-emerald-500/40 bg-emerald-500/10 text-emerald-300";
+    }
+    if (healthColor === "yellow") {
+      return "border-amber-500/40 bg-amber-500/10 text-amber-300";
+    }
+    if (healthColor === "red") {
+      return "border-[#e72027]/50 bg-[#e72027]/12 text-[#ff7c82]";
+    }
+    return "border-app-border bg-app-base text-app-muted";
+  };
+  const healthBlockClassName = (healthColor?: string | null) => {
+    if (healthColor === "green") {
+      return "border-emerald-500/45 bg-emerald-500/12";
+    }
+    if (healthColor === "yellow") {
+      return "border-amber-500/45 bg-amber-500/12";
+    }
+    if (healthColor === "red") {
+      return "border-[#e72027]/55 bg-[#e72027]/16";
+    }
+    return "border-app-border bg-app-base";
+  };
+  const healthLabel = (healthColor?: string | null) => {
+    if (healthColor === "green") return "Healthy";
+    if (healthColor === "yellow") return "Watch";
+    if (healthColor === "red") return "Red";
+    return "Watch";
+  };
   const scorecardOwners = useMemo(() => {
     const fromMetrics = data.scorecard
       .map((metric) => metric.owner)
@@ -813,29 +852,95 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
     [data.agenda_items],
   );
   const taskTimeline = useMemo(() => {
+    const healthPriority: Record<string, number> = {
+      red: 0,
+      yellow: 1,
+      green: 2,
+      watch: 3,
+    };
+    const toDateKey = (date: Date) => {
+      const year = date.getFullYear();
+      const month = `${date.getMonth() + 1}`.padStart(2, "0");
+      const day = `${date.getDate()}`.padStart(2, "0");
+      return `${year}-${month}-${day}`;
+    };
+    const compareTasks = (
+      a: {
+        due_date: string | null;
+        healthColor: string;
+        priority: "Priority" | "Backlog";
+        text: string;
+      },
+      b: {
+        due_date: string | null;
+        healthColor: string;
+        priority: "Priority" | "Backlog";
+        text: string;
+      },
+    ) => {
+      const aHasDate = Boolean(a.due_date);
+      const bHasDate = Boolean(b.due_date);
+      if (aHasDate && bHasDate && a.due_date !== b.due_date) {
+        return (a.due_date ?? "").localeCompare(b.due_date ?? "");
+      }
+      if (aHasDate !== bHasDate) {
+        return aHasDate ? -1 : 1;
+      }
+
+      const healthDelta =
+        (healthPriority[a.healthColor] ?? 9) -
+        (healthPriority[b.healthColor] ?? 9);
+      if (healthDelta !== 0) {
+        return healthDelta;
+      }
+
+      if (a.priority !== b.priority) {
+        return a.priority === "Priority" ? -1 : 1;
+      }
+      return a.text.localeCompare(b.text);
+    };
+
     const allTasks = [
       ...data.rocks.map((rock) => ({
+        sourceTable: "rocks" as const,
+        sourceId: rock.id,
         id: `rock-${rock.id}`,
         text: rock.title,
         owner: rock.owner,
         due_date: rock.due_date,
         isComplete: false,
         priority: "Priority" as const,
+        health: taskHealthBySource.get(`rocks:${rock.id}`) ?? null,
+        healthColor:
+          taskHealthBySource.get(`rocks:${rock.id}`)?.health_color ?? "watch",
+        delayCount: Math.max(
+          (taskHealthBySource.get(`rocks:${rock.id}`)?.audit_count ?? 1) - 1,
+          0,
+        ),
       })),
       ...data.todos.map((todo) => ({
+        sourceTable: "todos" as const,
+        sourceId: todo.id,
         id: `todo-${todo.id}`,
         text: todo.task_description,
         owner: todo.owner,
         due_date: todo.due_date,
         isComplete: todo.is_complete,
         priority: "Backlog" as const,
+        health: taskHealthBySource.get(`todos:${todo.id}`) ?? null,
+        healthColor:
+          taskHealthBySource.get(`todos:${todo.id}`)?.health_color ?? "watch",
+        delayCount: Math.max(
+          (taskHealthBySource.get(`todos:${todo.id}`)?.audit_count ?? 1) - 1,
+          0,
+        ),
       })),
     ];
 
     const withDate = allTasks
       .filter((task) => Boolean(task.due_date))
-      .sort((a, b) => (a.due_date ?? "").localeCompare(b.due_date ?? ""));
-    const withoutDate = allTasks.filter((task) => !task.due_date);
+      .sort(compareTasks);
+    const withoutDate = allTasks.filter((task) => !task.due_date).sort(compareTasks);
 
     const grouped = withDate.reduce<Record<string, typeof withDate>>(
       (acc, task) => {
@@ -850,20 +955,47 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
     );
 
     for (const date of Object.keys(grouped)) {
-      grouped[date].sort((a, b) => {
-        if (a.priority === b.priority) {
-          return a.text.localeCompare(b.text);
-        }
-        return a.priority === "Priority" ? -1 : 1;
+      grouped[date].sort(compareTasks);
+    }
+
+    const pulseSequence = [...withDate, ...withoutDate].sort(compareTasks);
+    const today = new Date();
+    const calendarDays: Array<{ key: string; label: string; tasks: typeof withDate }> = [];
+    for (let offset = 0; offset < 14; offset += 1) {
+      const day = new Date(today);
+      day.setDate(today.getDate() + offset);
+      const key = toDateKey(day);
+      calendarDays.push({
+        key,
+        label: day.toLocaleDateString(undefined, {
+          weekday: "short",
+          month: "short",
+          day: "numeric",
+        }),
+        tasks: grouped[key] ?? [],
       });
     }
+
+    const healthCounts = allTasks.reduce(
+      (acc, task) => {
+        if (task.healthColor === "red") acc.red += 1;
+        else if (task.healthColor === "yellow") acc.yellow += 1;
+        else if (task.healthColor === "green") acc.green += 1;
+        else acc.watch += 1;
+        return acc;
+      },
+      { green: 0, yellow: 0, red: 0, watch: 0 },
+    );
 
     return {
       grouped,
       orderedDates: Object.keys(grouped).sort((a, b) => a.localeCompare(b)),
       withoutDate,
+      pulseSequence,
+      calendarDays,
+      healthCounts,
     };
-  }, [data.rocks, data.todos]);
+  }, [data.rocks, data.todos, taskHealthBySource]);
   const activeMeeting = useMemo(() => {
     return (
       data.meetings.find((meeting) => !meeting.is_closed) ??
@@ -1066,19 +1198,10 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
     () => buildFinancialSubsections(data.scorecard, data.shopify_financials),
     [data.scorecard, data.shopify_financials, shopifyPeriod],
   );
-
-  useEffect(() => {
-    if (formatSegments.length === 0) {
-      if (segmentIndex !== 0) {
-        setSegmentIndex(0);
-      }
-      return;
-    }
-
-    if (segmentIndex > formatSegments.length - 1) {
-      setSegmentIndex(formatSegments.length - 1);
-    }
-  }, [formatSegments, segmentIndex]);
+  const safeSegmentIndex = Math.min(
+    segmentIndex,
+    Math.max(formatSegments.length - 1, 0),
+  );
 
   useEffect(() => {
     return () => {
@@ -1145,15 +1268,29 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
     }`;
 
   function getSaveStatus(statusKey: string): SaveState {
-    return saveStatusByKey[statusKey] ?? "idle";
+    return saveStatusByKey[statusKey]?.state ?? "idle";
   }
 
-  function updateSaveStatus(statusKey: string, state: SaveState) {
-    setSaveStatusByKey((previous) => ({ ...previous, [statusKey]: state }));
+  function getSaveErrorMessage(statusKey: string) {
+    return saveStatusByKey[statusKey]?.errorMessage ?? null;
+  }
+
+  function updateSaveStatus(
+    statusKey: string,
+    state: SaveState,
+    errorMessage?: string,
+  ) {
+    setSaveStatusByKey((previous) => ({
+      ...previous,
+      [statusKey]: {
+        state,
+        errorMessage: errorMessage ?? previous[statusKey]?.errorMessage,
+      },
+    }));
   }
 
   function markSaveSuccess(statusKey: string) {
-    updateSaveStatus(statusKey, "saved");
+    updateSaveStatus(statusKey, "saved", undefined);
 
     const existingTimeout = saveStatusTimeoutRef.current[statusKey];
     if (existingTimeout) {
@@ -1162,7 +1299,7 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
 
     saveStatusTimeoutRef.current[statusKey] = window.setTimeout(() => {
       setSaveStatusByKey((previous) => {
-        if (previous[statusKey] !== "saved") {
+        if (previous[statusKey]?.state !== "saved") {
           return previous;
         }
 
@@ -1181,7 +1318,11 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
     const { error } = await mutation;
 
     if (error) {
-      updateSaveStatus(statusKey, "error");
+      updateSaveStatus(
+        statusKey,
+        "error",
+        error.message?.trim() || "Supabase rejected the update.",
+      );
       return false;
     }
 
@@ -1191,6 +1332,7 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
 
   function saveStatusBadge(statusKey: string) {
     const status = getSaveStatus(statusKey);
+    const errorMessage = getSaveErrorMessage(statusKey);
 
     if (status === "idle") {
       return null;
@@ -1201,7 +1343,7 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
         ? "Saving..."
         : status === "saved"
           ? "Saved"
-          : "Failed - retry";
+          : errorMessage ?? "Failed - retry";
     const className =
       status === "saving"
         ? "border-app-border text-app-muted"
@@ -2546,12 +2688,123 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
   function todoTimelineSection() {
     return (
       <section className="rounded-2xl border border-app-border bg-app-panel p-4">
-        <h2 className="font-heading text-xl text-white">To-Do Timeline</h2>
+        <h2 className="font-heading text-xl text-white">Task Pulse + Calendar</h2>
         <p className="mt-1 text-xs text-app-muted">
-          All to-dos grouped by due date.
+          High-level pulse sequencing plus a 14-day health calendar for execution visibility.
         </p>
 
+        <div className="mt-3 flex flex-wrap gap-2">
+          <span className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-emerald-300">
+            Green {taskTimeline.healthCounts.green}
+          </span>
+          <span className="rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-amber-300">
+            Yellow {taskTimeline.healthCounts.yellow}
+          </span>
+          <span className="rounded-full border border-[#e72027]/50 bg-[#e72027]/12 px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-[#ff7c82]">
+            Red {taskTimeline.healthCounts.red}
+          </span>
+        </div>
+
+        <div className="mt-4 rounded-xl border border-app-border bg-black p-3">
+          <div className="mb-2 flex items-center justify-between">
+            <p className="text-xs uppercase tracking-[0.12em] text-app-muted">
+              Pulse Lane
+            </p>
+            <p className="text-[10px] uppercase tracking-[0.12em] text-app-muted">
+              Sequence: due date + risk
+            </p>
+          </div>
+
+          {taskTimeline.pulseSequence.length > 0 ? (
+            <div className="overflow-x-auto pb-1">
+              <div className="flex min-w-max items-stretch gap-3">
+                {taskTimeline.pulseSequence.map((task) => (
+                  <article
+                    key={`pulse-${task.id}`}
+                    className={`relative w-52 rounded-xl border px-3 py-2 ${healthBlockClassName(task.healthColor)}`}
+                    style={taskAccentStyle(task.owner)}
+                  >
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <span className="text-[10px] uppercase tracking-[0.12em] text-app-muted">
+                        {task.priority}
+                      </span>
+                      <span
+                        className={`rounded-full border px-1.5 py-0.5 text-[10px] uppercase tracking-[0.12em] ${healthPillClassName(task.healthColor)}`}
+                      >
+                        {healthLabel(task.healthColor)}
+                      </span>
+                    </div>
+                    <p className="line-clamp-2 text-sm text-white">{task.text}</p>
+                    <p className="mt-1 text-xs text-app-muted">
+                      {task.owner}
+                      {task.due_date
+                        ? ` - ${new Date(`${task.due_date}T00:00:00`).toLocaleDateString()}`
+                        : " - No due date"}
+                    </p>
+                    {task.delayCount > 0 ? (
+                      <p className="mt-2 text-[10px] uppercase tracking-[0.12em] text-[#ff7c82]">
+                        Delayed {task.delayCount}x
+                      </p>
+                    ) : null}
+                    <span className="pointer-events-none absolute -right-2 top-1/2 hidden h-0.5 w-2 bg-app-border md:block" />
+                  </article>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <p className="rounded-lg border border-app-border bg-app-base px-3 py-2 text-xs text-app-muted">
+              No tasks available for pulse view.
+            </p>
+          )}
+        </div>
+
+        <div className="mt-4 rounded-xl border border-app-border bg-black p-3">
+          <p className="mb-2 text-xs uppercase tracking-[0.12em] text-app-muted">
+            14-Day Calendar
+          </p>
+          <div className="grid grid-cols-2 gap-2 md:grid-cols-7">
+            {taskTimeline.calendarDays.map((day) => (
+              <article
+                key={`calendar-${day.key}`}
+                className="rounded-lg border border-app-border bg-app-base p-2"
+              >
+                <p className="text-[11px] uppercase tracking-[0.12em] text-app-muted">
+                  {day.label}
+                </p>
+                <div className="mt-2 space-y-1">
+                  {day.tasks.length > 0 ? (
+                    day.tasks.slice(0, 4).map((task) => (
+                      <div
+                        key={`calendar-task-${task.id}`}
+                        className={`rounded border px-2 py-1 ${healthBlockClassName(task.healthColor)}`}
+                        style={taskAccentStyle(task.owner)}
+                      >
+                        <p className="truncate text-xs text-white">{task.text}</p>
+                        <p className="mt-0.5 text-[10px] text-app-muted">
+                          {task.owner}
+                        </p>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="rounded border border-dashed border-app-border px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-app-muted">
+                      Clear
+                    </p>
+                  )}
+                  {day.tasks.length > 4 ? (
+                    <p className="text-[10px] uppercase tracking-[0.12em] text-app-muted">
+                      +{day.tasks.length - 4} more
+                    </p>
+                  ) : null}
+                </div>
+              </article>
+            ))}
+          </div>
+        </div>
+
         <div className="mt-3 space-y-3">
+          <p className="text-[10px] uppercase tracking-[0.12em] text-app-muted">
+            Detailed Ledger
+          </p>
           {taskTimeline.orderedDates.map((date) => (
             <article
               key={date}
@@ -2567,19 +2820,33 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                     className="rounded border border-app-border bg-app-base px-2 py-1 text-sm text-white"
                     style={taskAccentStyle(task.owner)}
                   >
-                    <span
-                      className={
-                        task.isComplete ? "line-through text-app-muted" : ""
-                      }
-                    >
-                      {task.text}
-                    </span>{" "}
-                    <span className="text-xs text-app-muted">
-                      ({task.owner})
-                    </span>{" "}
-                    <span className="text-[10px] uppercase text-app-muted">
-                      [{task.priority}]
-                    </span>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span
+                        className={
+                          task.isComplete ? "line-through text-app-muted" : ""
+                        }
+                      >
+                        {task.text}
+                      </span>
+                      <span className="text-xs text-app-muted">
+                        ({task.owner})
+                      </span>
+                      <span className="text-[10px] uppercase text-app-muted">
+                        [{task.priority}]
+                      </span>
+                      {task.health ? (
+                        <span
+                          className={`rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] ${healthPillClassName(task.health.health_color)}`}
+                        >
+                          {healthLabel(task.health.health_color)}
+                        </span>
+                      ) : null}
+                      {task.delayCount > 0 ? (
+                        <span className="rounded-full border border-[#e72027]/40 bg-[#e72027]/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-[#ff7c82]">
+                          Delayed {task.delayCount}x
+                        </span>
+                      ) : null}
+                    </div>
                   </li>
                 ))}
               </ul>
@@ -2598,19 +2865,33 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                     className="rounded border border-app-border bg-app-base px-2 py-1 text-sm text-white"
                     style={taskAccentStyle(task.owner)}
                   >
-                    <span
-                      className={
-                        task.isComplete ? "line-through text-app-muted" : ""
-                      }
-                    >
-                      {task.text}
-                    </span>{" "}
-                    <span className="text-xs text-app-muted">
-                      ({task.owner})
-                    </span>{" "}
-                    <span className="text-[10px] uppercase text-app-muted">
-                      [{task.priority}]
-                    </span>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span
+                        className={
+                          task.isComplete ? "line-through text-app-muted" : ""
+                        }
+                      >
+                        {task.text}
+                      </span>
+                      <span className="text-xs text-app-muted">
+                        ({task.owner})
+                      </span>
+                      <span className="text-[10px] uppercase text-app-muted">
+                        [{task.priority}]
+                      </span>
+                      {task.health ? (
+                        <span
+                          className={`rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] ${healthPillClassName(task.health.health_color)}`}
+                        >
+                          {healthLabel(task.health.health_color)}
+                        </span>
+                      ) : null}
+                      {task.delayCount > 0 ? (
+                        <span className="rounded-full border border-[#e72027]/40 bg-[#e72027]/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-[#ff7c82]">
+                          Delayed {task.delayCount}x
+                        </span>
+                      ) : null}
+                    </div>
                   </li>
                 ))}
               </ul>
@@ -4059,7 +4340,7 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
   }
 
   const currentFormatSegment =
-    formatSegments[segmentIndex] ??
+    formatSegments[safeSegmentIndex] ??
     ({
       segment_key: "Segue",
       label: "Segue",
@@ -4246,7 +4527,7 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
           <MeetingTimer
             segmentLabel={currentFormatSegment.label}
             durationMinutes={currentFormatSegment.duration_minutes}
-            canAdvanceSegment={segmentIndex < formatSegments.length - 1}
+            canAdvanceSegment={safeSegmentIndex < formatSegments.length - 1}
             onAdvanceSegment={advanceTimerSegment}
             onSaveMeeting={saveMeetingFromTimer}
           />
@@ -4439,7 +4720,7 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
         </main>
       ) : (
         <PresentationSlider
-          currentIndex={segmentIndex}
+            currentIndex={safeSegmentIndex}
           onIndexChange={setSegmentIndex}
           segments={formatSegments.map((segment) => ({
             id: segment.id,

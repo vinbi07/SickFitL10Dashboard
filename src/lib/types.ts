@@ -6,6 +6,8 @@ export type DecisionStatus = "Pending" | "Approved" | "Implemented";
 export type SnapshotType = "interim" | "final";
 export type ParkingLotStatus = "Open" | "Carried" | "Resolved";
 export type CalendarSyncStatus = "scheduled" | "cancelled";
+export type TaskHealthColor = "green" | "yellow" | "red" | "watch";
+export type TaskSourceTable = "rocks" | "todos";
 
 export interface ShopifyRecentOrder {
   id: number;
@@ -101,6 +103,55 @@ export interface TodoRow {
   carryover_count: number;
   created_at: string;
   updated_at: string;
+}
+
+export interface TaskRow {
+  id: string;
+  source_table: TaskSourceTable;
+  source_id: string;
+  title: string;
+  owner: string;
+  status: string;
+  due_date: string | null;
+  completed_at: string | null;
+  is_complete: boolean;
+  is_archived: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TaskAuditLogRow {
+  id: string;
+  task_id: string;
+  changed_by: string | null;
+  old_status: string | null;
+  new_status: string | null;
+  old_due_date: string | null;
+  new_due_date: string | null;
+  created_at: string;
+}
+
+export interface TaskHealthSummaryRow {
+  task_id: string;
+  source_table: TaskSourceTable;
+  source_id: string;
+  title: string;
+  owner: string;
+  status: string;
+  due_date: string | null;
+  completed_at: string | null;
+  audit_count: number;
+  health_color: TaskHealthColor;
+  health_reason: string;
+  first_audited_at: string | null;
+  last_audited_at: string | null;
+}
+
+export interface MemberPerformanceMetricsRow {
+  owner: string;
+  green_tasks: number;
+  red_tasks: number;
+  green_to_red_ratio: number | null;
 }
 
 export interface IssueCommentRow {
@@ -259,6 +310,9 @@ export interface DashboardData {
   calendar_sync_events: CalendarSyncEventRow[];
   people: PersonRow[];
   meeting_format_segments: MeetingFormatSegmentRow[];
+  tasks: TaskRow[];
+  task_health_summary: TaskHealthSummaryRow[];
+  member_performance_metrics: MemberPerformanceMetricsRow[];
   shopify_financials: ShopifyFinancialSummary | null;
   shopify_targets: ShopifyTargetRow[];
   shopify_period_metrics?: {
