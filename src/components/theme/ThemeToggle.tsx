@@ -26,9 +26,13 @@ export function ThemeToggle() {
           ? "dark"
           : "light";
 
-    setTheme(initialTheme);
     applyTheme(initialTheme);
-    setMounted(true);
+    const frameId = window.requestAnimationFrame(() => {
+      setTheme(initialTheme);
+      setMounted(true);
+    });
+
+    return () => window.cancelAnimationFrame(frameId);
   }, []);
 
   useEffect(() => {

@@ -104,6 +104,37 @@ body {
   outline-offset: 2px;
 }
 
+.skeleton-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+
+.skeleton-shimmer::after {
+  animation: skeleton-shimmer 1.45s ease-in-out infinite;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgb(var(--foreground-rgb) / 0.1),
+    transparent
+  );
+  content: "";
+  inset: 0;
+  position: absolute;
+  transform: translateX(-100%);
+}
+
+@keyframes skeleton-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-shimmer::after {
+    animation: none;
+  }
+}
+
 .theme-light .bg-app-panel,
 .theme-light .bg-app-panel\/95 {
   box-shadow:

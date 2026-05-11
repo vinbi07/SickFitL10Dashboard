@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { useActionState } from "react";
 import { loginAction } from "@/app/login/actions";
+import { LoadingButton } from "@/components/ui/loading";
 
 export default function LoginPage() {
   const [state, formAction, isPending] = useActionState(loginAction, {
@@ -39,13 +40,15 @@ export default function LoginPage() {
             className="w-full rounded-lg border border-app-border bg-black px-3 py-2 text-white outline-none transition focus:border-brand"
             placeholder="Enter password"
           />
-          <button
+          <LoadingButton
             type="submit"
+            isLoading={isPending}
+            loadingLabel="Checking session"
             disabled={isPending}
             className="w-full rounded-lg bg-brand px-4 py-2 font-semibold text-white transition hover:brightness-110"
           >
-            {isPending ? "Checking..." : "Enter Dashboard"}
-          </button>
+            Enter Dashboard
+          </LoadingButton>
           {state.error ? (
             <p className="text-sm text-brand">{state.error}</p>
           ) : null}

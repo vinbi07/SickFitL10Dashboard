@@ -4,6 +4,7 @@ import Image from "next/image";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   useEffect,
+  useDeferredValue,
   useMemo,
   useRef,
   useState,
@@ -13,6 +14,14 @@ import { logoutAction } from "@/app/login/actions";
 import { updateShopifyTargetAction } from "@/app/dashboard/actions";
 import { MeetingTimer } from "@/components/meeting/MeetingTimer";
 import { PresentationSlider } from "@/components/meeting/PresentationSlider";
+import {
+  CommentsSkeleton,
+  DashboardWidgetSkeleton,
+  LoadingButton,
+  LoadingSpinner,
+  SectionLoadingOverlay,
+  TaskModalSkeleton,
+} from "@/components/ui/loading";
 import { OWNERS, OWNER_ROLES, ROLE_OPTIONS } from "@/lib/constants/agenda";
 import { useRealtimeDashboard } from "@/lib/realtime/useRealtimeDashboard";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
@@ -122,6 +131,14 @@ const DASHBOARD_SECTIONS = [
 
 type DashboardSectionId = (typeof DASHBOARD_SECTIONS)[number]["id"];
 type SaveState = "idle" | "saving" | "saved" | "error";
+type ToastTone = "info" | "success" | "error";
+type ToastMessage = {
+  id: string;
+  tone: ToastTone;
+  title: string;
+  description?: string;
+};
+type TaskHealthSummaryRow = DashboardData["task_health_summary"][number];
 type BoardTaskType = "rock" | "todo";
 type BoardTaskPriority = "Low" | "Medium" | "High" | "Urgent";
 type BoardTaskStatus = "Todo" | "In Progress" | "Review" | "Completed";
@@ -777,6 +794,7 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
     Record<string, BoardTaskDetail>
   >({});
   const [taskBoardSearch, setTaskBoardSearch] = useState("");
+  const deferredTaskBoardSearch = useDeferredValue(taskBoardSearch);
   const [taskBoardPriorityFilter, setTaskBoardPriorityFilter] = useState<
     BoardTaskPriority | "All"
   >("All");
@@ -836,6 +854,9 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
     useState<DashboardSectionId | null>(null);
   const [demoKpiInsights, setDemoKpiInsights] =
     useState<KpiInsightsData | null>(null);
+  const [taskModalLoading, setTaskModalLoading] = useState(false);
+  const [activeDropKey, setActiveDropKey] = useState<string | null>(null);
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [saveStatusByKey, setSaveStatusByKey] = useState<
     Record<string, { state: SaveState; errorMessage?: string }>
   >({});
@@ -849,7 +870,9 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
   const modalSubtaskRef = useRef<HTMLInputElement | null>(null);
   const modalCommentRef = useRef<HTMLInputElement | null>(null);
   const highlightTimeoutRef = useRef<number | null>(null);
+  const modalLoadingTimeoutRef = useRef<number | null>(null);
   const saveStatusTimeoutRef = useRef<Record<string, number>>({});
+  const toastTimeoutRef = useRef<Record<string, number>>({});
   const [todayKey, setTodayKey] = useState(() => toDateKey(new Date()));
 
   useEffect(() => {
@@ -964,6 +987,7 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
   };
   const getTaskDetail = (task: SelectedBoardTask) =>
     taskDetailsByKey[boardTaskKey(task)] ?? defaultTaskDetail(task.type);
+  const isFilteringTasks = taskBoardSearch !== deferredTaskBoardSearch;
   const updateTaskDetail = (
     task: SelectedBoardTask,
     updater: (detail: BoardTaskDetail) => BoardTaskDetail,
@@ -1016,7 +1040,7 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
     };
   }, [data.rocks, data.todos, selectedBoardTask]);
   const taskHealthBySource = useMemo(() => {
-    const map = new Map<string, (typeof data.task_health_summary)[number]>();
+    const map = new Map<string, TaskHealthSummaryRow>();
 
     for (const summary of data.task_health_summary) {
       map.set(`${summary.source_table}:${summary.source_id}`, summary);
@@ -1468,22 +1492,29 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
       ),
     }));
   }, [data.scorecard, ownerRoleByName]);
-  const financialSubsections = useMemo(
-    () => buildFinancialSubsections(data.scorecard, data.shopify_financials),
-    [data.scorecard, data.shopify_financials, shopifyPeriod],
-  );
   const safeSegmentIndex = Math.min(
     segmentIndex,
     Math.max(formatSegments.length - 1, 0),
   );
 
   useEffect(() => {
+    const saveStatusTimeouts = saveStatusTimeoutRef.current;
+    const toastTimeouts = toastTimeoutRef.current;
+
     return () => {
       if (highlightTimeoutRef.current !== null) {
         window.clearTimeout(highlightTimeoutRef.current);
       }
 
-      for (const timeoutId of Object.values(saveStatusTimeoutRef.current)) {
+      if (modalLoadingTimeoutRef.current !== null) {
+        window.clearTimeout(modalLoadingTimeoutRef.current);
+      }
+
+      for (const timeoutId of Object.values(saveStatusTimeouts)) {
+        window.clearTimeout(timeoutId);
+      }
+
+      for (const timeoutId of Object.values(toastTimeouts)) {
         window.clearTimeout(timeoutId);
       }
     };
@@ -1604,23 +1635,64 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
     }, 1200);
   }
 
+  function dismissToast(id: string) {
+    const timeoutId = toastTimeoutRef.current[id];
+    if (timeoutId) {
+      window.clearTimeout(timeoutId);
+      delete toastTimeoutRef.current[id];
+    }
+
+    setToasts((current) => current.filter((toast) => toast.id !== id));
+  }
+
+  function pushToast(
+    tone: ToastTone,
+    title: string,
+    description?: string,
+  ) {
+    const id = createLocalId("toast");
+    setToasts((current) => [
+      { id, tone, title, description },
+      ...current.slice(0, 3),
+    ]);
+
+    toastTimeoutRef.current[id] = window.setTimeout(() => {
+      dismissToast(id);
+    }, tone === "error" ? 5600 : 2800);
+  }
+
+  function statusTitle(statusKey: string) {
+    if (statusKey.includes("delete")) return "Deleting";
+    if (statusKey.includes("archive")) return "Archiving";
+    if (statusKey.includes("add")) return "Creating";
+    if (statusKey.includes("drop") || statusKey.includes("move")) {
+      return "Moving task";
+    }
+    return "Saving";
+  }
+
   async function runMutation(
     statusKey: string,
     mutation: PromiseLike<{ error: { message?: string } | null }>,
   ) {
     updateSaveStatus(statusKey, "saving");
+    pushToast("info", statusTitle(statusKey));
     const { error } = await mutation;
 
     if (error) {
+      const message =
+        error.message?.trim() || "Supabase rejected the update.";
       updateSaveStatus(
         statusKey,
         "error",
-        error.message?.trim() || "Supabase rejected the update.",
+        message,
       );
+      pushToast("error", "Request failed", message);
       return false;
     }
 
     markSaveSuccess(statusKey);
+    pushToast("success", "Saved");
     return true;
   }
 
@@ -1647,8 +1719,10 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
 
     return (
       <span
-        className={`rounded border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] ${className}`}
+        className={`inline-flex items-center gap-1.5 rounded border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] ${className}`}
+        role={status === "error" ? "alert" : "status"}
       >
+        {status === "saving" ? <LoadingSpinner className="h-3 w-3" /> : null}
         {content}
       </span>
     );
@@ -1764,13 +1838,16 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
   }
 
   async function cycleIssueStatus(id: string, status: IssueStatus) {
-    await supabase
-      .from("issues")
-      .update({
-        status: ISSUE_STATUS_CYCLE[status],
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", id);
+    await runMutation(
+      `issue-${id}`,
+      supabase
+        .from("issues")
+        .update({
+          status: ISSUE_STATUS_CYCLE[status],
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", id),
+    );
   }
 
   async function addIssue() {
@@ -1780,13 +1857,20 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
       return;
     }
 
-    await supabase.from("issues").insert({
-      title,
-      priority: issueDraft.priority,
-      status: "IDS",
-      notes: "",
-      owner: issueDraft.owner,
-    });
+    const success = await runMutation(
+      "issue-add",
+      supabase.from("issues").insert({
+        title,
+        priority: issueDraft.priority,
+        status: "IDS",
+        notes: "",
+        owner: issueDraft.owner,
+      }),
+    );
+
+    if (!success) {
+      return;
+    }
 
     setIssueDraft({ title: "", priority: "Med", owner: issueDraft.owner });
   }
@@ -1795,35 +1879,50 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
     const nextTitle = title.trim();
     if (!nextTitle) return;
 
-    await supabase
-      .from("issues")
-      .update({ title: nextTitle, updated_at: new Date().toISOString() })
-      .eq("id", id);
+    await runMutation(
+      `issue-${id}`,
+      supabase
+        .from("issues")
+        .update({ title: nextTitle, updated_at: new Date().toISOString() })
+        .eq("id", id),
+    );
   }
 
   async function updateIssueNotes(id: string, notes: string) {
-    await supabase
-      .from("issues")
-      .update({ notes, updated_at: new Date().toISOString() })
-      .eq("id", id);
+    await runMutation(
+      `issue-${id}`,
+      supabase
+        .from("issues")
+        .update({ notes, updated_at: new Date().toISOString() })
+        .eq("id", id),
+    );
   }
 
   async function updateIssueOwner(id: string, owner: string) {
-    await supabase
-      .from("issues")
-      .update({ owner, updated_at: new Date().toISOString() })
-      .eq("id", id);
+    await runMutation(
+      `issue-${id}`,
+      supabase
+        .from("issues")
+        .update({ owner, updated_at: new Date().toISOString() })
+        .eq("id", id),
+    );
   }
 
   async function deleteIssue(id: string) {
-    await supabase.from("issues").delete().eq("id", id);
+    await runMutation(
+      `issue-${id}`,
+      supabase.from("issues").delete().eq("id", id),
+    );
   }
 
   async function updateIssuePriority(id: string, priority: IssuePriority) {
-    await supabase
-      .from("issues")
-      .update({ priority, updated_at: new Date().toISOString() })
-      .eq("id", id);
+    await runMutation(
+      `issue-${id}`,
+      supabase
+        .from("issues")
+        .update({ priority, updated_at: new Date().toISOString() })
+        .eq("id", id),
+    );
   }
 
   async function toggleRockStatus(
@@ -2181,8 +2280,14 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
       return;
     }
 
-    await moveTodoToRock(draggingTask.id, ownerOverride);
-    setDraggingTask(null);
+    const dropKey = `priority-${ownerOverride ?? "team"}`;
+    setActiveDropKey(dropKey);
+    try {
+      await moveTodoToRock(draggingTask.id, ownerOverride);
+    } finally {
+      setActiveDropKey(null);
+      setDraggingTask(null);
+    }
   }
 
   async function dropIntoBacklog(ownerOverride?: string) {
@@ -2190,8 +2295,14 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
       return;
     }
 
-    await moveRockToTodo(draggingTask.id, ownerOverride);
-    setDraggingTask(null);
+    const dropKey = `backlog-${ownerOverride ?? "team"}`;
+    setActiveDropKey(dropKey);
+    try {
+      await moveRockToTodo(draggingTask.id, ownerOverride);
+    } finally {
+      setActiveDropKey(null);
+      setDraggingTask(null);
+    }
   }
 
   async function dropTaskToOwner(owner: string) {
@@ -2199,17 +2310,30 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
       return;
     }
 
-    if (draggingTask.type === "rock") {
-      await updateRockOwner(draggingTask.id, owner);
-    } else {
-      await updateTodoOwner(draggingTask.id, owner);
+    const dropKey = `owner-${owner}`;
+    setActiveDropKey(dropKey);
+    try {
+      if (draggingTask.type === "rock") {
+        await updateRockOwner(draggingTask.id, owner);
+      } else {
+        await updateTodoOwner(draggingTask.id, owner);
+      }
+    } finally {
+      setActiveDropKey(null);
+      setDraggingTask(null);
     }
-
-    setDraggingTask(null);
   }
 
   function openBoardTask(type: BoardTaskType, id: string) {
+    if (modalLoadingTimeoutRef.current !== null) {
+      window.clearTimeout(modalLoadingTimeoutRef.current);
+    }
+
+    setTaskModalLoading(true);
     setSelectedBoardTask({ type, id });
+    modalLoadingTimeoutRef.current = window.setTimeout(() => {
+      setTaskModalLoading(false);
+    }, 220);
   }
 
   function handleTaskCardKeyDown(
@@ -2299,6 +2423,8 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
     const nextBody = body.trim();
     if (!nextBody) return;
 
+    const statusKey = `${boardTaskKey(task)}-comment`;
+    updateSaveStatus(statusKey, "saving");
     updateTaskDetail(task, (detail) => ({
       ...detail,
       comments: [
@@ -2311,6 +2437,8 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
         ...detail.comments,
       ],
     }));
+    markSaveSuccess(statusKey);
+    pushToast("success", "Comment posted");
   }
 
   function addRelatedLink(task: SelectedBoardTask, rawUrl: string) {
@@ -2327,6 +2455,8 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
     const url = normalizeUrl(rawUrl);
     if (!url) return;
 
+    const statusKey = `${boardTaskKey(task)}-attachment`;
+    updateSaveStatus(statusKey, "saving");
     const parsed = new URL(url);
     updateTaskDetail(task, (detail) => ({
       ...detail,
@@ -2339,6 +2469,8 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
         },
       ],
     }));
+    markSaveSuccess(statusKey);
+    pushToast("success", "Upload complete", "Attachment link added.");
   }
 
   async function saveTaskDetailField(
@@ -2355,12 +2487,16 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
         [field]: value,
       }));
       markSaveSuccess(statusKey);
+      pushToast("success", "Saved");
     } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unable to save field";
       updateSaveStatus(
         statusKey,
         "error",
-        error instanceof Error ? error.message : "Unable to save field",
+        message,
       );
+      pushToast("error", "Save failed", message);
     }
   }
 
@@ -3285,7 +3421,13 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
 
   function tasksByPersonSection() {
     return (
-      <section className="rounded-2xl border border-app-border bg-app-panel p-4">
+      <section
+        className="relative rounded-2xl border border-app-border bg-app-panel p-4"
+        aria-busy={isFilteringTasks || Boolean(activeDropKey)}
+      >
+        {isFilteringTasks ? (
+          <SectionLoadingOverlay label="Refining tasks" />
+        ) : null}
         <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
           <div>
             <h2 className="font-heading text-xl text-white">Tasks by Person</h2>
@@ -3352,7 +3494,15 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
           </select>
         </div>
 
-        <div className="mt-4 grid gap-3 overflow-x-auto pb-2 [grid-template-columns:repeat(auto-fit,minmax(340px,1fr))]">
+        <AnimatePresence mode="popLayout">
+          <motion.div
+            key={`${deferredTaskBoardSearch}-${taskBoardOwnerFilter}-${taskBoardPriorityFilter}-${taskBoardStatusFilter}`}
+            initial={{ opacity: 0.7, y: 4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.18 }}
+            className="mt-4 grid gap-3 overflow-x-auto pb-2 [grid-template-columns:repeat(auto-fit,minmax(340px,1fr))]"
+          >
           {activeTasksByOwner.map(({ owner, priority, todos }) => {
             if (
               taskBoardOwnerFilter !== "All" &&
@@ -3367,7 +3517,7 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
               taskOwner: string,
             ) => {
               const detail = getTaskDetail(task);
-              const query = taskBoardSearch.trim().toLowerCase();
+              const query = deferredTaskBoardSearch.trim().toLowerCase();
               const matchesQuery =
                 !query ||
                 [
@@ -3415,9 +3565,12 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                 key={owner}
                 onDragOver={(event) => event.preventDefault()}
                 onDrop={() => void dropTaskToOwner(owner)}
-                className="min-w-[320px] rounded-lg border border-app-border bg-black p-3"
+                className="relative min-w-[320px] rounded-lg border border-app-border bg-black p-3"
                 style={taskAccentStyle(owner)}
               >
+                {activeDropKey === `owner-${owner}` ? (
+                  <SectionLoadingOverlay label="Moving task" />
+                ) : null}
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <h3 className="font-heading text-lg text-white">{owner}</h3>
@@ -3437,8 +3590,11 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                       event.stopPropagation();
                       void dropIntoPriority(owner);
                     }}
-                    className="space-y-2 rounded-lg border border-dashed border-app-border bg-app-base/50 p-2"
+                    className="relative space-y-2 rounded-lg border border-dashed border-app-border bg-app-base/50 p-2"
                   >
+                    {activeDropKey === `priority-${owner}` ? (
+                      <SectionLoadingOverlay label="Converting to priority" />
+                    ) : null}
                     <div className="flex items-center justify-between">
                       <p className="text-xs uppercase tracking-[0.12em] text-app-muted">
                         Priority
@@ -3642,13 +3798,18 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                           }
                           className="min-w-0 flex-1 rounded border border-app-border bg-app-base px-2 py-1 text-xs text-white"
                         />
-                        <button
+                        <LoadingButton
                           type="button"
+                          isLoading={
+                            getSaveStatus(`board-priority-add-${ownerKey}`) ===
+                            "saving"
+                          }
+                          loadingLabel="Adding"
                           onClick={() => void addPriorityTaskForOwner(owner)}
                           className="rounded border border-brand px-3 py-1 text-xs font-semibold text-brand hover:bg-brand hover:text-white"
                         >
                           Add
-                        </button>
+                        </LoadingButton>
                         {saveStatusBadge(`board-priority-add-${ownerKey}`)}
                       </div>
                     </div>
@@ -3660,8 +3821,11 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                       event.stopPropagation();
                       void dropIntoBacklog(owner);
                     }}
-                    className="space-y-2 rounded-lg border border-dashed border-app-border bg-app-base/50 p-2"
+                    className="relative space-y-2 rounded-lg border border-dashed border-app-border bg-app-base/50 p-2"
                   >
+                    {activeDropKey === `backlog-${owner}` ? (
+                      <SectionLoadingOverlay label="Moving to backlog" />
+                    ) : null}
                     <div className="flex items-center justify-between">
                       <p className="text-xs uppercase tracking-[0.12em] text-app-muted">
                         Backlog
@@ -3887,13 +4051,18 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                           }
                           className="min-w-0 flex-1 rounded border border-app-border bg-app-base px-2 py-1 text-xs text-white"
                         />
-                        <button
+                        <LoadingButton
                           type="button"
+                          isLoading={
+                            getSaveStatus(`board-backlog-add-${ownerKey}`) ===
+                            "saving"
+                          }
+                          loadingLabel="Adding"
                           onClick={() => void addBacklogTaskForOwner(owner)}
                           className="rounded border border-brand px-3 py-1 text-xs font-semibold text-brand hover:bg-brand hover:text-white"
                         >
                           Add
-                        </button>
+                        </LoadingButton>
                         {saveStatusBadge(`board-backlog-add-${ownerKey}`)}
                       </div>
                     </div>
@@ -3902,14 +4071,60 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
               </article>
             );
           })}
-        </div>
+          </motion.div>
+        </AnimatePresence>
       </section>
     );
   }
 
   function taskDetailDrawer() {
-    if (!selectedBoardTask || !selectedTaskRecord) {
+    if (!selectedBoardTask) {
       return null;
+    }
+
+    if (taskModalLoading || !selectedTaskRecord) {
+      return (
+        <AnimatePresence>
+          <motion.div
+            className="fixed inset-0 z-[80] bg-black/45 backdrop-blur-sm"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onMouseDown={closeTaskDetail}
+          >
+            <motion.aside
+              role="dialog"
+              aria-modal="true"
+              aria-busy="true"
+              className="absolute right-0 top-0 flex h-full w-full max-w-4xl flex-col overflow-hidden border-l border-app-border bg-app-panel shadow-2xl md:rounded-l-2xl"
+              initial={{ x: "100%" }}
+              animate={{ x: 0 }}
+              exit={{ x: "100%" }}
+              transition={{ type: "spring", damping: 26, stiffness: 260 }}
+              onMouseDown={(event) => event.stopPropagation()}
+            >
+              <div className="flex items-start justify-between gap-3 border-b border-app-border p-4">
+                <div className="min-w-0 flex-1">
+                  <div className="mb-2 flex items-center gap-2 text-xs text-app-muted">
+                    <LoadingSpinner />
+                    Opening task
+                  </div>
+                  <div className="h-8 w-2/3 rounded bg-app-border/70 skeleton-shimmer" />
+                </div>
+                <button
+                  type="button"
+                  onClick={closeTaskDetail}
+                  className="rounded-lg border border-app-border px-3 py-2 text-sm text-app-muted transition hover:text-brand"
+                  aria-label="Close task details"
+                >
+                  Close
+                </button>
+              </div>
+              <TaskModalSkeleton />
+            </motion.aside>
+          </motion.div>
+        </AnimatePresence>
+      );
     }
 
     const detail = getTaskDetail(selectedBoardTask);
@@ -3973,8 +4188,12 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                   className="w-full rounded border border-transparent bg-transparent px-1 py-1 font-heading text-2xl text-white outline-none transition focus:border-app-border focus:bg-app-base"
                 />
                 <div className="mt-2 flex items-center gap-2">
-                  <button
+                  <LoadingButton
                     type="button"
+                    isLoading={
+                      getSaveStatus(`${selectedTaskKey}-title`) === "saving"
+                    }
+                    loadingLabel="Saving"
                     onClick={() =>
                       void updateSelectedTaskTitle(
                         selectedBoardTask,
@@ -3985,7 +4204,7 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                     className="rounded border border-brand px-3 py-1 text-xs font-semibold text-brand transition hover:bg-brand hover:text-white"
                   >
                     Save Title
-                  </button>
+                  </LoadingButton>
                   {saveStatusBadge(`${selectedTaskKey}-title`)}
                 </div>
               </div>
@@ -4013,8 +4232,13 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                     className="mt-2 min-h-28 w-full rounded border border-app-border bg-app-base px-3 py-2 text-sm text-white"
                   />
                   <div className="mt-2 flex justify-end">
-                    <button
+                    <LoadingButton
                       type="button"
+                      isLoading={
+                        getSaveStatus(`${selectedTaskKey}-description`) ===
+                        "saving"
+                      }
+                      loadingLabel="Saving"
                       onClick={() =>
                         void saveTaskDetailField(
                           selectedBoardTask,
@@ -4026,7 +4250,7 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                       className="rounded border border-brand px-3 py-1 text-xs font-semibold text-brand transition hover:bg-brand hover:text-white"
                     >
                       Save Description
-                    </button>
+                    </LoadingButton>
                     {saveStatusBadge(`${selectedTaskKey}-description`)}
                   </div>
                 </section>
@@ -4117,8 +4341,12 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                     className="mt-2 min-h-24 w-full rounded border border-app-border bg-app-base px-3 py-2 text-sm text-white"
                   />
                   <div className="mt-2 flex justify-end">
-                    <button
+                    <LoadingButton
                       type="button"
+                      isLoading={
+                        getSaveStatus(`${selectedTaskKey}-notes`) === "saving"
+                      }
+                      loadingLabel="Saving"
                       onClick={() =>
                         void saveTaskDetailField(
                           selectedBoardTask,
@@ -4129,7 +4357,7 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                       className="rounded border border-brand px-3 py-1 text-xs font-semibold text-brand transition hover:bg-brand hover:text-white"
                     >
                       Save Notes
-                    </button>
+                    </LoadingButton>
                     {saveStatusBadge(`${selectedTaskKey}-notes`)}
                   </div>
                 </section>
@@ -4145,8 +4373,13 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                       placeholder="Add comment or @mention..."
                       className="min-w-0 flex-1 rounded border border-app-border bg-app-base px-3 py-2 text-sm text-white"
                     />
-                    <button
+                    <LoadingButton
                       type="button"
+                      isLoading={
+                        getSaveStatus(`${selectedTaskKey}-comment`) ===
+                        "saving"
+                      }
+                      loadingLabel="Posting"
                       onClick={() => {
                         addTaskComment(
                           selectedBoardTask,
@@ -4159,10 +4392,13 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                       className="rounded border border-brand px-3 py-2 text-sm font-semibold text-brand hover:bg-brand hover:text-white"
                     >
                       Post
-                    </button>
+                    </LoadingButton>
                   </div>
                   <div className="mt-3 space-y-2">
-                    {detail.comments.length > 0 ? (
+                    {getSaveStatus(`${selectedTaskKey}-comment`) ===
+                    "saving" ? (
+                      <CommentsSkeleton />
+                    ) : detail.comments.length > 0 ? (
                       detail.comments.map((comment) => (
                         <article
                           key={comment.id}
@@ -4278,8 +4514,13 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                         className="mt-1 w-full rounded border border-app-border bg-app-base px-2 py-2 text-sm text-white"
                       />
                     </label>
-                    <button
+                    <LoadingButton
                       type="button"
+                      isLoading={
+                        getSaveStatus(`${selectedTaskKey}-estimate`) ===
+                        "saving"
+                      }
+                      loadingLabel="Saving"
                       onClick={() =>
                         void saveTaskDetailField(
                           selectedBoardTask,
@@ -4290,7 +4531,7 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                       className="w-full rounded border border-brand px-3 py-2 text-xs font-semibold text-brand transition hover:bg-brand hover:text-white"
                     >
                       Save Estimate
-                    </button>
+                    </LoadingButton>
                     {saveStatusBadge(`${selectedTaskKey}-estimate`)}
                   </div>
                   <div className="mt-3 rounded border border-app-border bg-app-base px-3 py-2 text-xs text-app-muted">
@@ -4374,8 +4615,13 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                       placeholder="File/image URL"
                       className="min-w-0 flex-1 rounded border border-app-border bg-app-base px-2 py-2 text-sm text-white"
                     />
-                    <button
+                    <LoadingButton
                       type="button"
+                      isLoading={
+                        getSaveStatus(`${selectedTaskKey}-attachment`) ===
+                        "saving"
+                      }
+                      loadingLabel="Adding"
                       onClick={() => {
                         addTaskAttachment(
                           selectedBoardTask,
@@ -4386,8 +4632,9 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                       className="rounded border border-brand px-3 py-2 text-xs font-semibold text-brand hover:bg-brand hover:text-white"
                     >
                       Add
-                    </button>
+                    </LoadingButton>
                   </div>
+                  {saveStatusBadge(`${selectedTaskKey}-attachment`)}
                 </section>
 
                 <section className="rounded-xl border border-app-border bg-app-panel p-3">
@@ -6056,10 +6303,15 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
             })}
           </div>
         ) : (
-          <div className="mt-6 rounded-xl border border-dashed border-app-border bg-app-base p-8 text-center">
-            <p className="text-sm text-app-muted">
-              Loading Shopify metrics for {periodLabel.toLowerCase()}...
-            </p>
+          <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <DashboardWidgetSkeleton />
+            <DashboardWidgetSkeleton />
+            <div className="rounded-xl border border-dashed border-app-border bg-app-base p-4">
+              <div className="flex items-center gap-2 text-sm text-app-muted">
+                <LoadingSpinner />
+                Loading Shopify metrics for {periodLabel.toLowerCase()}
+              </div>
+            </div>
           </div>
         )}
 
@@ -6247,6 +6499,65 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
           : meeting,
       ),
     }));
+  }
+
+  function toastViewport() {
+    if (toasts.length === 0) {
+      return null;
+    }
+
+    const toneClass: Record<ToastTone, string> = {
+      info: "border-app-border text-app-muted",
+      success: "border-emerald-700 text-emerald-300",
+      error: "border-[#e72027] text-[#e72027]",
+    };
+
+    return (
+      <div
+        className="fixed bottom-4 right-4 z-[120] flex w-[calc(100vw-2rem)] max-w-sm flex-col gap-2"
+        aria-live="polite"
+        aria-relevant="additions"
+      >
+        <AnimatePresence initial={false}>
+          {toasts.map((toast) => (
+            <motion.div
+              key={toast.id}
+              layout
+              initial={{ opacity: 0, y: 10, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 8, scale: 0.98 }}
+              transition={{ duration: 0.18 }}
+              className={`rounded-xl border bg-app-panel p-3 shadow-2xl ${toneClass[toast.tone]}`}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-white">
+                    {toast.title}
+                  </p>
+                  {toast.description ? (
+                    <p className="mt-1 text-xs text-app-muted">
+                      {toast.description}
+                    </p>
+                  ) : null}
+                </div>
+                {toast.tone === "info" ? (
+                  <LoadingSpinner className="mt-0.5 h-3.5 w-3.5" />
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => dismissToast(toast.id)}
+                    className="text-xs text-app-muted hover:text-white"
+                    aria-label="Dismiss notification"
+                  >
+                    x
+                  </button>
+                )}
+              </div>
+            </motion.div>
+          ))}
+        </AnimatePresence>
+      </div>
+    );
   }
 
   return (
@@ -6511,6 +6822,7 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
         </PresentationSlider>
       )}
       {taskDetailDrawer()}
+      {toastViewport()}
     </div>
   );
 }
