@@ -179,7 +179,7 @@ export async function carryoverItemsToMeetingAction(formData: FormData) {
       .neq("status", "On Track"),
     supabase
       .from("todos")
-      .select("task_description, owner, due_date, carryover_count")
+      .select("task_description, owner, due_date, status, carryover_count")
       .eq("meeting_id", sourceMeetingId)
       .eq("is_complete", false),
   ]);
@@ -230,6 +230,7 @@ export async function carryoverItemsToMeetingAction(formData: FormData) {
         owner: todo.owner,
         is_complete: false,
         due_date: todo.due_date,
+        status: todo.status,
         meeting_id: targetMeetingId,
         carryover_count: todo.carryover_count + 1,
       })),

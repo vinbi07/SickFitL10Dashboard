@@ -5,6 +5,7 @@ export const AGENDA_SEGMENTS = [
   "Headlines",
   "Links",
   "To-Dos",
+  "Tasks by Person",
   "IDS",
   "Conclude",
 ] as const;
@@ -18,6 +19,7 @@ export const SEGMENT_DURATIONS_MINUTES: Record<AgendaSegment, number> = {
   Headlines: 5,
   Links: 10,
   "To-Dos": 5,
+  "Tasks by Person": 5,
   IDS: 60,
   Conclude: 5,
 };

@@ -14,6 +14,7 @@ import type {
   IssuePriority,
   IssueStatus,
   ShopifyFinancialSummary,
+  TodoStatus,
 } from "@/lib/types";
 
 interface DashboardClientProps {
@@ -34,6 +35,7 @@ const CORE_SEGMENT_KEYS = [
   "Headlines",
   "Links",
   "To-Dos",
+  "Tasks by Person",
   "Task Pulse + Calendar",
   "IDS",
   "Conclude",
@@ -79,6 +81,11 @@ const DASHBOARD_SECTIONS = [
     id: "todo-list",
     label: "To-Do List",
     keywords: ["todo", "rocks", "priority", "backlog"],
+  },
+  {
+    id: "tasks-by-person",
+    label: "Tasks by Person",
+    keywords: ["person", "owner", "assigned", "priority", "backlog"],
   },
   {
     id: "todo-timeline",
@@ -223,6 +230,13 @@ function getInitials(fullName: string) {
 function normalizeAccentColor(rawValue?: string | null) {
   const value = (rawValue ?? "").trim();
   return /^#[0-9a-fA-F]{6}$/.test(value) ? value : DEFAULT_ACCENT_COLOR;
+}
+
+function toDateKey(date: Date) {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function toDurationLabel(totalSeconds: number) {
@@ -709,6 +723,16 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
   >({});
   const highlightTimeoutRef = useRef<number | null>(null);
   const saveStatusTimeoutRef = useRef<Record<string, number>>({});
+  const [todayKey, setTodayKey] = useState(() => toDateKey(new Date()));
+
+  useEffect(() => {
+    const syncTodayKey = () => setTodayKey(toDateKey(new Date()));
+
+    syncTodayKey();
+    const intervalId = window.setInterval(syncTodayKey, 60_000);
+
+    return () => window.clearInterval(intervalId);
+  }, []);
 
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
   const assignableOwners = useMemo(() => {
@@ -757,6 +781,51 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
 
     return map;
   }, [data.people]);
+  const activeTodos = useMemo(
+    () => data.todos.filter((todo) => !todo.is_archived),
+    [data.todos],
+  );
+  const activeRocks = useMemo(
+    () => data.rocks.filter((rock) => !rock.is_archived),
+    [data.rocks],
+  );
+  const archivedTodos = useMemo(
+    () => data.todos.filter((todo) => todo.is_archived),
+    [data.todos],
+  );
+  const taskOwners = useMemo(() => {
+    const activePeople = data.people
+      .filter((person) => person.is_active)
+      .map((person) => person.full_name.trim())
+      .filter(Boolean);
+    const uniqueActivePeople = Array.from(new Set(activePeople));
+    const ownersFromTasks = Array.from(
+      new Set(
+        [...activeRocks, ...activeTodos]
+          .map((task) => task.owner.trim() || "Unassigned")
+          .filter(Boolean),
+      ),
+    );
+    const fallbackOwners = ownersFromTasks.filter(
+      (owner) => !uniqueActivePeople.includes(owner),
+    );
+    const owners = [...uniqueActivePeople, ...fallbackOwners];
+
+    return owners.length > 0 ? owners : [...OWNERS];
+  }, [activeRocks, activeTodos, data.people]);
+  const activeTasksByOwner = useMemo(() => {
+    return taskOwners.map((owner) => ({
+      owner,
+      priority: activeRocks.filter((rock) => {
+        const normalizedOwner = rock.owner.trim() || "Unassigned";
+        return normalizedOwner === owner;
+      }),
+      todos: activeTodos.filter((todo) => {
+        const normalizedOwner = todo.owner.trim() || "Unassigned";
+        return normalizedOwner === owner;
+      }),
+    }));
+  }, [activeRocks, activeTodos, taskOwners]);
   const taskAccentStyle = (owner: string) => {
     const color = ownerAccentByName.get(owner);
     if (!color) return undefined;
@@ -805,6 +874,15 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
     if (healthColor === "red") return "Red";
     return "Watch";
   };
+  const todoStatusFor = (
+    todo: DashboardData["todos"][number],
+  ): TodoStatus => {
+    if (todo.due_date) {
+      return todo.due_date >= todayKey ? "On Track" : "Off Track";
+    }
+
+    return todo.status;
+  };
   const scorecardOwners = useMemo(() => {
     const fromMetrics = data.scorecard
       .map((metric) => metric.owner)
@@ -823,12 +901,8 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
       (a, b) => a.sort_order - b.sort_order,
     );
     const active = sorted.filter((segment) => segment.is_enabled);
-
-    if (active.length > 0) {
-      return active;
-    }
-
-    return CORE_SEGMENT_KEYS.map((key, index) => ({
+    const existingKeys = new Set(sorted.map((segment) => segment.segment_key));
+    const fallbackSegmentFor = (key: (typeof CORE_SEGMENT_KEYS)[number], index: number) => ({
       id: `fallback-${key}`,
       segment_key: key,
       label:
@@ -838,11 +912,23 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
             ? "Backlog / What to Expect"
             : key,
       duration_minutes: 5,
-      sort_order: (index + 1) * 10,
+      sort_order: key === "Tasks by Person" ? 64 : (index + 1) * 10,
       is_enabled: true,
       created_at: "",
       updated_at: "",
-    }));
+    });
+
+    if (active.length > 0) {
+      const missingCoreSegments = CORE_SEGMENT_KEYS.map(fallbackSegmentFor).filter(
+        (segment) => !existingKeys.has(segment.segment_key),
+      );
+
+      return [...active, ...missingCoreSegments].sort(
+        (a, b) => a.sort_order - b.sort_order,
+      );
+    }
+
+    return CORE_SEGMENT_KEYS.map(fallbackSegmentFor);
   }, [data.meeting_format_segments]);
   const segueItems = useMemo(
     () => data.agenda_items.filter((item) => item.segment === "Segue"),
@@ -1665,6 +1751,7 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
         owner: todoDraft.owner,
         is_complete: false,
         due_date: todoDraft.dueDate || null,
+        status: "Off Track",
       }),
     );
 
@@ -1714,6 +1801,21 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
     );
   }
 
+  async function updateTodoStatus(id: string, current: TodoStatus) {
+    const nextStatus = current === "On Track" ? "Off Track" : "On Track";
+
+    await runMutation(
+      `todo-${id}`,
+      supabase
+        .from("todos")
+        .update({
+          status: nextStatus,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", id),
+    );
+  }
+
   async function deleteTodo(id: string) {
     await runMutation(
       `todo-${id}`,
@@ -1755,6 +1857,7 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
         owner: rock.owner,
         is_complete: rock.status === "On Track",
         due_date: rock.due_date ?? null,
+        status: rock.status,
       }),
     );
 
@@ -2159,7 +2262,7 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
 
   function scorecardSection() {
     return (
-      <section className="rounded-2xl border border-app-border bg-app-panel p-4">
+      <section className="w-full rounded-2xl border border-app-border bg-app-panel p-4">
         <h2 className="font-heading text-xl text-white">Scorecard by Member</h2>
         <div className="mt-3 space-y-4">
           {scorecardByOwner.map(({ owner, metrics }) => {
@@ -2315,17 +2418,14 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
   }
 
   function rocksSection() {
-    const activeRocks = data.rocks.filter((rock) => !rock.is_archived);
     const archivedRocks = data.rocks.filter((rock) => rock.is_archived);
-    const activeTodos = data.todos.filter((todo) => !todo.is_archived);
-    const archivedTodos = data.todos.filter((todo) => todo.is_archived);
     const totalArchived = archivedRocks.length + archivedTodos.length;
 
     return (
       <section className="rounded-2xl border border-app-border bg-app-panel p-4">
         <h2 className="font-heading text-xl text-white">To-Do List</h2>
         <p className="mt-1 text-xs text-app-muted">
-          Priority items appear first, followed by backlog items.
+          Priority and backlog lanes for the whole team. Due dates drive status when present.
         </p>
         <div className="mt-3 space-y-2">
           <p className="text-xs uppercase tracking-[0.12em] text-app-muted">
@@ -2471,147 +2571,182 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
 
           <div className="mt-4 border-t border-app-border pt-4">
             <p className="mb-2 text-xs uppercase tracking-[0.12em] text-app-muted">
-              Backlog / What to Expect
+              Backlog
             </p>
             <div
               onDragOver={(event) => event.preventDefault()}
               onDrop={() => void dropIntoBacklog()}
               className="mb-2 rounded border border-dashed border-app-border bg-app-base px-3 py-2 text-xs text-app-muted"
             >
-              Drop a priority item here to convert it to backlog.
+              Drop a priority item here to convert it to a to-do.
             </div>
 
             <div className="space-y-2">
-              {activeTodos.map((todo) => (
-                <div
-                  key={todo.id}
-                  className="flex items-center justify-between rounded-lg border border-app-border bg-black p-3"
-                  style={taskAccentStyle(todo.owner)}
-                  draggable
-                  onDragStart={() =>
-                    setDraggingTask({ type: "todo", id: todo.id })
-                  }
-                  onDragEnd={() => setDraggingTask(null)}
-                >
-                  <div className="flex flex-1 flex-wrap items-center gap-2">
-                    <span className="select-none cursor-grab active:cursor-grabbing text-app-muted text-lg leading-none pt-0.5 flex-shrink-0">
-                      ::
-                    </span>
-                    <input
-                      defaultValue={todo.task_description}
-                      onBlur={(event) =>
-                        updateTodoTask(todo.id, event.target.value)
-                      }
-                      className={`min-w-52 flex-1 rounded border border-app-border bg-app-base px-2 py-1 text-sm ${
-                        todo.is_complete
-                          ? "text-app-muted line-through"
-                          : "text-white"
-                      }`}
-                    />
-                    <select
-                      value={todo.owner}
-                      onChange={(event) =>
-                        updateTodoOwner(todo.id, event.target.value)
-                      }
-                      className="rounded border border-app-border bg-app-base px-2 py-1 text-xs text-white"
-                    >
-                      {ownerOptionsFor(todo.owner).map((owner) => (
-                        <option key={owner}>{owner}</option>
-                      ))}
-                    </select>
-                    <input
-                      type="date"
-                      value={todo.due_date ?? ""}
-                      onChange={(event) =>
-                        updateTodoDueDate(todo.id, event.target.value)
-                      }
-                      className="rounded border border-app-border bg-app-base px-2 py-1 text-xs text-white"
-                    />
-                  </div>
+              {activeTodos.length > 0 ? (
+                activeTodos.map((todo) => {
+                  const todoStatus = todoStatusFor(todo);
+                  const statusClass =
+                    todoStatus === "On Track"
+                      ? "bg-emerald-700 text-white"
+                      : "bg-brand text-white";
 
-                  <div className="ml-3 flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => void moveTodoToRock(todo.id)}
-                      className="rounded border border-app-border px-2 py-1 text-xs text-app-muted transition hover:text-white"
-                      title="Move to What's This Week"
-                    >
-                      Move to What&apos;s This Week
-                    </button>
-                    {saveStatusBadge(`todo-${todo.id}`)}
-                    <input
-                      type="checkbox"
-                      checked={todo.is_complete}
-                      onChange={() =>
-                        toggleTodoComplete(todo.id, todo.is_complete)
+                  return (
+                    <div
+                      key={todo.id}
+                      className="flex items-center justify-between rounded-lg border border-app-border bg-black p-3"
+                      style={taskAccentStyle(todo.owner)}
+                      draggable
+                      onDragStart={() =>
+                        setDraggingTask({ type: "todo", id: todo.id })
                       }
-                      className="h-4 w-4 accent-brand"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => archiveTodo(todo.id)}
-                      className="text-xs text-app-muted transition hover:text-yellow-500"
-                      title="Archive"
+                      onDragEnd={() => setDraggingTask(null)}
                     >
-                      Archive
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => deleteTodo(todo.id)}
-                      className="text-xs text-app-muted transition hover:text-brand"
-                    >
-                      Remove
-                    </button>
-                  </div>
-                </div>
-              ))}
+                      <div className="flex flex-1 flex-wrap items-center gap-2">
+                        <span className="select-none cursor-grab active:cursor-grabbing text-app-muted text-lg leading-none pt-0.5 flex-shrink-0">
+                          ::
+                        </span>
+                        <input
+                          defaultValue={todo.task_description}
+                          onBlur={(event) =>
+                            updateTodoTask(todo.id, event.target.value)
+                          }
+                          className={`min-w-52 flex-1 rounded border border-app-border bg-app-base px-2 py-1 text-sm ${
+                            todo.is_complete
+                              ? "text-app-muted line-through"
+                              : "text-white"
+                          }`}
+                        />
+                        <select
+                          value={todo.owner}
+                          onChange={(event) =>
+                            updateTodoOwner(todo.id, event.target.value)
+                          }
+                          className="rounded border border-app-border bg-app-base px-2 py-1 text-xs text-white"
+                        >
+                          {ownerOptionsFor(todo.owner).map((owner) => (
+                            <option key={owner}>{owner}</option>
+                          ))}
+                        </select>
+                        <input
+                          type="date"
+                          value={todo.due_date ?? ""}
+                          onChange={(event) =>
+                            updateTodoDueDate(todo.id, event.target.value)
+                          }
+                          className="rounded border border-app-border bg-app-base px-2 py-1 text-xs text-white"
+                        />
+                      </div>
 
-              <div className="mt-2 flex flex-wrap gap-2 rounded-lg border border-app-border bg-black p-3">
-                <input
-                  value={todoDraft.task}
-                  onChange={(event) =>
-                    setTodoDraft((previous) => ({
-                      ...previous,
-                      task: event.target.value,
-                    }))
-                  }
-                  placeholder="Add backlog item"
-                  className="min-w-52 flex-1 rounded border border-app-border bg-app-base px-2 py-1 text-sm text-white"
-                />
-                <select
-                  value={todoDraft.owner}
-                  onChange={(event) =>
-                    setTodoDraft((previous) => ({
-                      ...previous,
-                      owner: event.target.value,
-                    }))
-                  }
-                  className="rounded border border-app-border bg-app-base px-2 py-1 text-xs text-white"
-                >
-                  {ownerOptionsFor(todoDraft.owner).map((owner) => (
-                    <option key={owner}>{owner}</option>
-                  ))}
-                </select>
-                <input
-                  type="date"
-                  value={todoDraft.dueDate}
-                  onChange={(event) =>
-                    setTodoDraft((previous) => ({
-                      ...previous,
-                      dueDate: event.target.value,
-                    }))
-                  }
-                  className="rounded border border-app-border bg-app-base px-2 py-1 text-xs text-white"
-                />
-                <button
-                  type="button"
-                  onClick={addTodo}
-                  className="rounded border border-app-border px-3 py-1 text-xs text-white hover:border-brand"
-                >
-                  Add Backlog Item
-                </button>
-                {saveStatusBadge("todo-add")}
-              </div>
+                      <div className="ml-3 flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => void moveTodoToRock(todo.id)}
+                          className="rounded border border-app-border px-2 py-1 text-xs text-app-muted transition hover:text-white"
+                          title="Move to What's This Week"
+                        >
+                          Move to What&apos;s This Week
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            todo.due_date
+                              ? undefined
+                              : void updateTodoStatus(todo.id, todoStatus)
+                          }
+                          disabled={Boolean(todo.due_date)}
+                          className={`rounded px-3 py-1 text-xs font-semibold ${statusClass} ${
+                            todo.due_date
+                              ? "cursor-default opacity-80"
+                              : "transition hover:opacity-90"
+                          }`}
+                          title={
+                            todo.due_date
+                              ? `Derived from due date ${todo.due_date}`
+                              : "Toggle manual status"
+                          }
+                        >
+                          {todoStatus}
+                        </button>
+                        {saveStatusBadge(`todo-${todo.id}`)}
+                        <input
+                          type="checkbox"
+                          checked={todo.is_complete}
+                          onChange={() =>
+                            toggleTodoComplete(todo.id, todo.is_complete)
+                          }
+                          className="h-4 w-4 accent-brand"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => archiveTodo(todo.id)}
+                          className="text-xs text-app-muted transition hover:text-yellow-500"
+                          title="Archive"
+                        >
+                          Archive
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => deleteTodo(todo.id)}
+                          className="text-xs text-app-muted transition hover:text-brand"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <p className="rounded border border-dashed border-app-border bg-app-base px-3 py-4 text-sm text-app-muted">
+                  No open backlog items yet.
+                </p>
+              )}
+            </div>
+
+            <div className="mt-3 flex flex-wrap gap-2 rounded-lg border border-app-border bg-black p-3">
+              <input
+                value={todoDraft.task}
+                onChange={(event) =>
+                  setTodoDraft((previous) => ({
+                    ...previous,
+                    task: event.target.value,
+                  }))
+                }
+                placeholder="Add to-do"
+                className="min-w-52 flex-1 rounded border border-app-border bg-app-base px-2 py-1 text-sm text-white"
+              />
+              <select
+                value={todoDraft.owner}
+                onChange={(event) =>
+                  setTodoDraft((previous) => ({
+                    ...previous,
+                    owner: event.target.value,
+                  }))
+                }
+                className="rounded border border-app-border bg-app-base px-2 py-1 text-xs text-white"
+              >
+                {ownerOptionsFor(todoDraft.owner).map((owner) => (
+                  <option key={owner}>{owner}</option>
+                ))}
+              </select>
+              <input
+                type="date"
+                value={todoDraft.dueDate}
+                onChange={(event) =>
+                  setTodoDraft((previous) => ({
+                    ...previous,
+                    dueDate: event.target.value,
+                  }))
+                }
+                className="rounded border border-app-border bg-app-base px-2 py-1 text-xs text-white"
+              />
+              <button
+                type="button"
+                onClick={addTodo}
+                className="rounded border border-app-border px-3 py-1 text-xs text-white hover:border-brand"
+              >
+                Add To-Do
+              </button>
+              {saveStatusBadge("todo-add")}
             </div>
           </div>
 
@@ -2687,6 +2822,152 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
               )}
             </div>
           )}
+        </div>
+      </section>
+    );
+  }
+
+  function tasksByPersonSection() {
+    return (
+      <section className="rounded-2xl border border-app-border bg-app-panel p-4">
+        <h2 className="font-heading text-xl text-white">Tasks by Person</h2>
+        <p className="mt-1 text-xs text-app-muted">
+          Each owner has their Priority and Backlog items grouped together for quick review.
+        </p>
+
+        <div className="mt-4 grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(300px,1fr))]">
+          {activeTasksByOwner.map(({ owner, priority, todos }) => {
+            const totalTasks = priority.length + todos.length;
+
+            return (
+              <article
+                key={owner}
+                className="rounded-lg border border-app-border bg-black p-3"
+                style={taskAccentStyle(owner)}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h3 className="font-heading text-lg text-white">{owner}</h3>
+                    <p className="text-xs text-app-muted">
+                      {ownerRoleByName.get(owner) ?? "Member"}
+                    </p>
+                  </div>
+                  <span className="rounded-full border border-app-border px-2 py-1 text-[11px] uppercase tracking-[0.12em] text-app-muted">
+                    {totalTasks} task{totalTasks === 1 ? "" : "s"}
+                  </span>
+                </div>
+
+                <div className="mt-3 space-y-3">
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs uppercase tracking-[0.12em] text-app-muted">
+                        Priority
+                      </p>
+                      <span className="text-[11px] text-app-muted">
+                        {priority.length}
+                      </span>
+                    </div>
+                    {priority.length > 0 ? (
+                      priority.map((rock) => (
+                        <div
+                          key={rock.id}
+                          className="rounded-lg border border-app-border bg-app-base/60 p-3"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <p className="text-sm font-medium text-white">
+                              {rock.title}
+                            </p>
+                            <span
+                              className={`rounded px-2 py-1 text-[11px] font-semibold ${
+                                rock.status === "On Track"
+                                  ? "bg-emerald-700 text-white"
+                                  : "bg-brand text-white"
+                              }`}
+                            >
+                              {rock.status}
+                            </span>
+                          </div>
+                          <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-app-muted">
+                            <span>Due {rock.due_date ?? "unset"}</span>
+                            <button
+                              type="button"
+                              onClick={() => void moveRockToTodo(rock.id)}
+                              className="rounded border border-app-border px-2 py-1 transition hover:text-white"
+                            >
+                              Move to Backlog
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="rounded border border-dashed border-app-border bg-app-base px-3 py-3 text-sm text-app-muted">
+                        No priority items.
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="space-y-2 border-t border-app-border pt-3">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs uppercase tracking-[0.12em] text-app-muted">
+                        Backlog
+                      </p>
+                      <span className="text-[11px] text-app-muted">
+                        {todos.length}
+                      </span>
+                    </div>
+                    {todos.length > 0 ? (
+                      todos.map((todo) => {
+                        const todoStatus = todoStatusFor(todo);
+
+                        return (
+                          <div
+                            key={todo.id}
+                            className="rounded-lg border border-app-border bg-app-base/60 p-3"
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <p
+                                className={`text-sm font-medium ${
+                                  todo.is_complete
+                                    ? "text-app-muted line-through"
+                                    : "text-white"
+                                }`}
+                              >
+                                {todo.task_description}
+                              </p>
+                              <span
+                                className={`rounded px-2 py-1 text-[11px] font-semibold ${
+                                  todoStatus === "On Track"
+                                    ? "bg-emerald-700 text-white"
+                                    : "bg-brand text-white"
+                                }`}
+                              >
+                                {todoStatus}
+                              </span>
+                            </div>
+                            <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-app-muted">
+                              <span>Due {todo.due_date ?? "unset"}</span>
+                              <span>{todo.is_complete ? "Complete" : "Open"}</span>
+                              <button
+                                type="button"
+                                onClick={() => void moveTodoToRock(todo.id)}
+                                className="rounded border border-app-border px-2 py-1 transition hover:text-white"
+                              >
+                                Move to Priority
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <p className="rounded border border-dashed border-app-border bg-app-base px-3 py-3 text-sm text-app-muted">
+                        No backlog items.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </article>
+            );
+          })}
         </div>
       </section>
     );
@@ -4654,6 +4935,20 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
           >
             {financialsSection()}
           </div>
+          <div
+            id="todo-list"
+            ref={registerSectionRef("todo-list")}
+            className={sectionWrapperClass("todo-list")}
+          >
+            {rocksSection()}
+          </div>
+          <div
+            id="tasks-by-person"
+            ref={registerSectionRef("tasks-by-person")}
+            className={sectionWrapperClass("tasks-by-person")}
+          >
+            {tasksByPersonSection()}
+          </div>
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:items-start">
             <div className="space-y-4">
               <div
@@ -4702,13 +4997,6 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                 {issuesSection()}
               </div>
               <div
-                id="todo-list"
-                ref={registerSectionRef("todo-list")}
-                className={sectionWrapperClass("todo-list")}
-              >
-                {rocksSection()}
-              </div>
-              <div
                 id="meeting-format"
                 ref={registerSectionRef("meeting-format")}
                 className={sectionWrapperClass("meeting-format")}
@@ -4747,6 +5035,7 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
           {currentSegment === "Headlines" && agendaSection()}
           {currentSegment === "Links" && meetingLinksSection()}
           {currentSegment === "To-Dos" && rocksSection()}
+          {currentSegment === "Tasks by Person" && tasksByPersonSection()}
           {currentSegment === "Task Pulse + Calendar" && todoTimelineSection()}
           {currentSegment === "IDS" && issuesSection()}
           {currentSegment === "Conclude" && concludeSection()}

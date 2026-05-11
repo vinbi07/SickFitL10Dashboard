@@ -1,4 +1,5 @@
 export type ScorecardStatus = "On Track" | "Off Track";
+export type TodoStatus = "On Track" | "Off Track";
 export type RockStatus = "On Track" | "Off Track";
 export type IssuePriority = "High" | "Med" | "Low";
 export type IssueStatus = "IDS" | "Solved" | "Tabled";
@@ -98,6 +99,7 @@ export interface TodoRow {
   owner: string;
   is_complete: boolean;
   due_date: string | null;
+  status: TodoStatus;
   is_archived: boolean;
   meeting_id: string | null;
   carryover_count: number;
