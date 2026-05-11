@@ -8,6 +8,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ChangeEvent,
   type KeyboardEvent,
 } from "react";
 import { logoutAction } from "@/app/login/actions";
@@ -55,6 +56,15 @@ const CORE_SEGMENT_KEYS = [
   "Task Pulse + Calendar",
   "IDS",
   "Conclude",
+];
+
+const SICKFIT_SITE_LINKS = [
+  { label: "Outreach", url: "https://sickfit-outreach.vercel.app" },
+  {
+    label: "Mockups",
+    url: "https://sickfit-mockup-approval.sickfitofficial.com",
+  },
+  { label: "Grants", url: "https://sickfit-grants.vercel.app" },
 ];
 
 const DASHBOARD_SECTIONS = [
@@ -6560,6 +6570,14 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
     );
   }
 
+  function handleSiteSwitch(event: ChangeEvent<HTMLSelectElement>) {
+    const nextUrl = event.target.value;
+
+    if (nextUrl) {
+      window.location.assign(nextUrl);
+    }
+  }
+
   return (
     <div className="min-h-screen bg-app-base p-4 md:p-6">
       <header className="mb-4 flex flex-col gap-3 rounded-2xl border border-app-border bg-app-panel p-4 md:flex-row md:items-center md:justify-between">
@@ -6582,6 +6600,26 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          <label className="flex items-center gap-2 rounded-lg border border-app-border bg-app-base px-3 py-2 text-sm text-white">
+            <span className="text-xs uppercase tracking-[0.12em] text-app-muted">
+              Site
+            </span>
+            <select
+              defaultValue=""
+              onChange={handleSiteSwitch}
+              className="max-w-36 bg-transparent text-sm font-semibold text-white outline-none"
+              aria-label="Switch SickFit website"
+            >
+              <option value="" disabled>
+                Dashboard
+              </option>
+              {SICKFIT_SITE_LINKS.map((site) => (
+                <option key={site.url} value={site.url} className="text-black">
+                  {site.label}
+                </option>
+              ))}
+            </select>
+          </label>
           {activeMeeting ? (
             <span className="rounded border border-app-border px-2 py-1 text-xs text-app-muted">
               {activeMeeting.label} - {activeMeeting.meeting_date}
