@@ -78,14 +78,9 @@ const DASHBOARD_SECTIONS = [
     keywords: ["ids", "issues", "solved", "tabled"],
   },
   {
-    id: "todo-list",
-    label: "To-Do List",
-    keywords: ["todo", "rocks", "priority", "backlog"],
-  },
-  {
     id: "tasks-by-person",
     label: "Tasks by Person",
-    keywords: ["person", "owner", "assigned", "priority", "backlog"],
+    keywords: ["todo", "rocks", "task", "person", "owner", "assigned", "priority", "backlog"],
   },
   {
     id: "todo-timeline",
@@ -666,6 +661,17 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
     owner: OWNERS[0],
     dueDate: "",
   });
+  const [taskBoardDrafts, setTaskBoardDrafts] = useState<
+    Record<
+      string,
+      {
+        priorityTitle: string;
+        priorityDueDate: string;
+        backlogTask: string;
+        backlogDueDate: string;
+      }
+    >
+  >({});
   const [agendaDrafts, setAgendaDrafts] = useState<
     Record<"Segue" | "Headlines", { text: string; owner: string }>
   >({
@@ -831,8 +837,8 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
     if (!color) return undefined;
 
     return {
-      borderColor: color,
-      boxShadow: `0 0 0 1px ${color}33 inset`,
+      borderTopColor: color,
+      borderTopWidth: "3px",
     };
   };
   const taskHealthBySource = useMemo(() => {
@@ -874,9 +880,7 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
     if (healthColor === "red") return "Red";
     return "Watch";
   };
-  const todoStatusFor = (
-    todo: DashboardData["todos"][number],
-  ): TodoStatus => {
+  const todoStatusFor = (todo: DashboardData["todos"][number]): TodoStatus => {
     if (todo.due_date) {
       return todo.due_date >= todayKey ? "On Track" : "Off Track";
     }
@@ -902,7 +906,10 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
     );
     const active = sorted.filter((segment) => segment.is_enabled);
     const existingKeys = new Set(sorted.map((segment) => segment.segment_key));
-    const fallbackSegmentFor = (key: (typeof CORE_SEGMENT_KEYS)[number], index: number) => ({
+    const fallbackSegmentFor = (
+      key: (typeof CORE_SEGMENT_KEYS)[number],
+      index: number,
+    ) => ({
       id: `fallback-${key}`,
       segment_key: key,
       label:
@@ -919,9 +926,9 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
     });
 
     if (active.length > 0) {
-      const missingCoreSegments = CORE_SEGMENT_KEYS.map(fallbackSegmentFor).filter(
-        (segment) => !existingKeys.has(segment.segment_key),
-      );
+      const missingCoreSegments = CORE_SEGMENT_KEYS.map(
+        fallbackSegmentFor,
+      ).filter((segment) => !existingKeys.has(segment.segment_key));
 
       return [...active, ...missingCoreSegments].sort(
         (a, b) => a.sort_order - b.sort_order,
@@ -1762,6 +1769,83 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
     setTodoDraft((previous) => ({ ...previous, task: "", dueDate: "" }));
   }
 
+  async function addPriorityTaskForOwner(owner: string) {
+    const draft = taskBoardDrafts[owner];
+    const title = draft?.priorityTitle.trim() ?? "";
+
+    if (!title) {
+      return;
+    }
+
+    const ownerKey = toStatusKey(owner);
+    const success = await runMutation(
+      `board-priority-add-${ownerKey}`,
+      supabase.from("rocks").insert({
+        title,
+        owner,
+        status: "Off Track",
+        due_date: draft?.priorityDueDate || null,
+      }),
+    );
+
+    if (!success) {
+      return;
+    }
+
+    setTaskBoardDrafts((previous) => ({
+      ...previous,
+      [owner]: {
+        ...(previous[owner] ?? {
+          priorityTitle: "",
+          priorityDueDate: "",
+          backlogTask: "",
+          backlogDueDate: "",
+        }),
+        priorityTitle: "",
+        priorityDueDate: "",
+      },
+    }));
+  }
+
+  async function addBacklogTaskForOwner(owner: string) {
+    const draft = taskBoardDrafts[owner];
+    const task = draft?.backlogTask.trim() ?? "";
+
+    if (!task) {
+      return;
+    }
+
+    const ownerKey = toStatusKey(owner);
+    const success = await runMutation(
+      `board-backlog-add-${ownerKey}`,
+      supabase.from("todos").insert({
+        task_description: task,
+        owner,
+        is_complete: false,
+        due_date: draft?.backlogDueDate || null,
+        status: "Off Track",
+      }),
+    );
+
+    if (!success) {
+      return;
+    }
+
+    setTaskBoardDrafts((previous) => ({
+      ...previous,
+      [owner]: {
+        ...(previous[owner] ?? {
+          priorityTitle: "",
+          priorityDueDate: "",
+          backlogTask: "",
+          backlogDueDate: "",
+        }),
+        backlogTask: "",
+        backlogDueDate: "",
+      },
+    }));
+  }
+
   async function updateTodoTask(id: string, taskDescription: string) {
     const nextTask = taskDescription.trim();
     if (!nextTask) return;
@@ -1843,7 +1927,7 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
     );
   }
 
-  async function moveRockToTodo(rockId: string) {
+  async function moveRockToTodo(rockId: string, ownerOverride?: string) {
     const rock = data.rocks.find((item) => item.id === rockId);
 
     if (!rock) {
@@ -1854,7 +1938,7 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
       `rock-${rockId}`,
       supabase.from("todos").insert({
         task_description: rock.title,
-        owner: rock.owner,
+        owner: ownerOverride ?? rock.owner,
         is_complete: rock.status === "On Track",
         due_date: rock.due_date ?? null,
         status: rock.status,
@@ -1871,7 +1955,7 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
     );
   }
 
-  async function moveTodoToRock(todoId: string) {
+  async function moveTodoToRock(todoId: string, ownerOverride?: string) {
     const todo = data.todos.find((item) => item.id === todoId);
 
     if (!todo) {
@@ -1882,7 +1966,7 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
       `todo-${todoId}`,
       supabase.from("rocks").insert({
         title: todo.task_description,
-        owner: todo.owner,
+        owner: ownerOverride ?? todo.owner,
         status: todo.is_complete ? "On Track" : "Off Track",
         due_date: todo.due_date ?? null,
       }),
@@ -1898,21 +1982,35 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
     );
   }
 
-  async function dropIntoPriority() {
+  async function dropIntoPriority(ownerOverride?: string) {
     if (!draggingTask || draggingTask.type !== "todo") {
       return;
     }
 
-    await moveTodoToRock(draggingTask.id);
+    await moveTodoToRock(draggingTask.id, ownerOverride);
     setDraggingTask(null);
   }
 
-  async function dropIntoBacklog() {
+  async function dropIntoBacklog(ownerOverride?: string) {
     if (!draggingTask || draggingTask.type !== "rock") {
       return;
     }
 
-    await moveRockToTodo(draggingTask.id);
+    await moveRockToTodo(draggingTask.id, ownerOverride);
+    setDraggingTask(null);
+  }
+
+  async function dropTaskToOwner(owner: string) {
+    if (!draggingTask) {
+      return;
+    }
+
+    if (draggingTask.type === "rock") {
+      await updateRockOwner(draggingTask.id, owner);
+    } else {
+      await updateTodoOwner(draggingTask.id, owner);
+    }
+
     setDraggingTask(null);
   }
 
@@ -2425,7 +2523,8 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
       <section className="rounded-2xl border border-app-border bg-app-panel p-4">
         <h2 className="font-heading text-xl text-white">To-Do List</h2>
         <p className="mt-1 text-xs text-app-muted">
-          Priority and backlog lanes for the whole team. Due dates drive status when present.
+          Priority and backlog lanes for the whole team. Due dates drive status
+          when present.
         </p>
         <div className="mt-3 space-y-2">
           <p className="text-xs uppercase tracking-[0.12em] text-app-muted">
@@ -2830,19 +2929,40 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
   function tasksByPersonSection() {
     return (
       <section className="rounded-2xl border border-app-border bg-app-panel p-4">
-        <h2 className="font-heading text-xl text-white">Tasks by Person</h2>
-        <p className="mt-1 text-xs text-app-muted">
-          Each owner has their Priority and Backlog items grouped together for quick review.
-        </p>
+        <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+          <div>
+            <h2 className="font-heading text-xl text-white">Tasks by Person</h2>
+            <p className="mt-1 text-xs text-app-muted">
+              Owner columns with editable Priority and Backlog cards.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2 text-[11px] uppercase tracking-[0.12em] text-app-muted">
+            <span className="rounded-full border border-brand/40 bg-brand/10 px-2 py-1 text-brand">
+              Priority {activeRocks.length}
+            </span>
+            <span className="rounded-full border border-app-border px-2 py-1">
+              Backlog {activeTodos.length}
+            </span>
+          </div>
+        </div>
 
-        <div className="mt-4 grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(300px,1fr))]">
+        <div className="mt-4 grid gap-3 overflow-x-auto pb-2 [grid-template-columns:repeat(auto-fit,minmax(340px,1fr))]">
           {activeTasksByOwner.map(({ owner, priority, todos }) => {
             const totalTasks = priority.length + todos.length;
+            const ownerKey = toStatusKey(owner);
+            const draft = taskBoardDrafts[owner] ?? {
+              priorityTitle: "",
+              priorityDueDate: "",
+              backlogTask: "",
+              backlogDueDate: "",
+            };
 
             return (
               <article
                 key={owner}
-                className="rounded-lg border border-app-border bg-black p-3"
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={() => void dropTaskToOwner(owner)}
+                className="min-w-[320px] rounded-lg border border-app-border bg-black p-3"
                 style={taskAccentStyle(owner)}
               >
                 <div className="flex items-start justify-between gap-3">
@@ -2858,7 +2978,14 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                 </div>
 
                 <div className="mt-3 space-y-3">
-                  <div className="space-y-2">
+                  <div
+                    onDragOver={(event) => event.preventDefault()}
+                    onDrop={(event) => {
+                      event.stopPropagation();
+                      void dropIntoPriority(owner);
+                    }}
+                    className="space-y-2 rounded-lg border border-dashed border-app-border bg-app-base/50 p-2"
+                  >
                     <div className="flex items-center justify-between">
                       <p className="text-xs uppercase tracking-[0.12em] text-app-muted">
                         Priority
@@ -2871,13 +2998,48 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                       priority.map((rock) => (
                         <div
                           key={rock.id}
-                          className="rounded-lg border border-app-border bg-app-base/60 p-3"
+                          draggable
+                          onDragStart={() =>
+                            setDraggingTask({ type: "rock", id: rock.id })
+                          }
+                          onDragEnd={() => setDraggingTask(null)}
+                          className="rounded-lg border border-app-border bg-app-panel p-3"
                         >
-                          <div className="flex items-start justify-between gap-3">
-                            <p className="text-sm font-medium text-white">
-                              {rock.title}
-                            </p>
-                            <span
+                          <div className="flex items-start gap-2">
+                            <span className="select-none pt-1 text-lg leading-none text-app-muted">
+                              ::
+                            </span>
+                            <input
+                              defaultValue={rock.title}
+                              onBlur={(event) =>
+                                updateRockTitle(rock.id, event.target.value)
+                              }
+                              className="min-w-0 flex-1 rounded border border-app-border bg-app-base px-2 py-1 text-sm font-medium text-white"
+                            />
+                          </div>
+                          <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-app-muted">
+                            <select
+                              value={rock.owner}
+                              onChange={(event) =>
+                                updateRockOwner(rock.id, event.target.value)
+                              }
+                              className="rounded border border-app-border bg-app-base px-2 py-1 text-xs text-white"
+                            >
+                              {ownerOptionsFor(rock.owner).map((ownerOption) => (
+                                <option key={ownerOption}>{ownerOption}</option>
+                              ))}
+                            </select>
+                            <input
+                              type="date"
+                              value={rock.due_date ?? ""}
+                              onChange={(event) =>
+                                updateRockDueDate(rock.id, event.target.value)
+                              }
+                              className="rounded border border-app-border bg-app-base px-2 py-1 text-xs text-white"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => toggleRockStatus(rock.id, rock.status)}
                               className={`rounded px-2 py-1 text-[11px] font-semibold ${
                                 rock.status === "On Track"
                                   ? "bg-emerald-700 text-white"
@@ -2885,16 +3047,28 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                               }`}
                             >
                               {rock.status}
-                            </span>
-                          </div>
-                          <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-app-muted">
-                            <span>Due {rock.due_date ?? "unset"}</span>
+                            </button>
                             <button
                               type="button"
                               onClick={() => void moveRockToTodo(rock.id)}
                               className="rounded border border-app-border px-2 py-1 transition hover:text-white"
                             >
                               Move to Backlog
+                            </button>
+                            {saveStatusBadge(`rock-${rock.id}`)}
+                            <button
+                              type="button"
+                              onClick={() => archiveRock(rock.id)}
+                              className="rounded border border-app-border px-2 py-1 transition hover:text-yellow-500"
+                            >
+                              Archive
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => deleteRock(rock.id)}
+                              className="rounded border border-app-border px-2 py-1 transition hover:text-brand"
+                            >
+                              Delete
                             </button>
                           </div>
                         </div>
@@ -2904,9 +3078,57 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                         No priority items.
                       </p>
                     )}
+
+                    <div className="grid gap-2 rounded-lg border border-app-border bg-app-panel p-2">
+                      <input
+                        value={draft.priorityTitle}
+                        onChange={(event) =>
+                          setTaskBoardDrafts((previous) => ({
+                            ...previous,
+                            [owner]: {
+                              ...draft,
+                              priorityTitle: event.target.value,
+                            },
+                          }))
+                        }
+                        placeholder={`Add priority for ${owner}`}
+                        className="rounded border border-app-border bg-app-base px-2 py-1 text-sm text-white"
+                      />
+                      <div className="flex gap-2">
+                        <input
+                          type="date"
+                          value={draft.priorityDueDate}
+                          onChange={(event) =>
+                            setTaskBoardDrafts((previous) => ({
+                              ...previous,
+                              [owner]: {
+                                ...draft,
+                                priorityDueDate: event.target.value,
+                              },
+                            }))
+                          }
+                          className="min-w-0 flex-1 rounded border border-app-border bg-app-base px-2 py-1 text-xs text-white"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => void addPriorityTaskForOwner(owner)}
+                          className="rounded border border-brand px-3 py-1 text-xs font-semibold text-brand hover:bg-brand hover:text-white"
+                        >
+                          Add
+                        </button>
+                        {saveStatusBadge(`board-priority-add-${ownerKey}`)}
+                      </div>
+                    </div>
                   </div>
 
-                  <div className="space-y-2 border-t border-app-border pt-3">
+                  <div
+                    onDragOver={(event) => event.preventDefault()}
+                    onDrop={(event) => {
+                      event.stopPropagation();
+                      void dropIntoBacklog(owner);
+                    }}
+                    className="space-y-2 rounded-lg border border-dashed border-app-border bg-app-base/50 p-2"
+                  >
                     <div className="flex items-center justify-between">
                       <p className="text-xs uppercase tracking-[0.12em] text-app-muted">
                         Backlog
@@ -2922,37 +3144,97 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                         return (
                           <div
                             key={todo.id}
-                            className="rounded-lg border border-app-border bg-app-base/60 p-3"
+                            draggable
+                            onDragStart={() =>
+                              setDraggingTask({ type: "todo", id: todo.id })
+                            }
+                            onDragEnd={() => setDraggingTask(null)}
+                            className="rounded-lg border border-app-border bg-app-panel p-3"
                           >
-                            <div className="flex items-start justify-between gap-3">
-                              <p
-                                className={`text-sm font-medium ${
+                            <div className="flex items-start gap-2">
+                              <span className="select-none pt-1 text-lg leading-none text-app-muted">
+                                ::
+                              </span>
+                              <input
+                                defaultValue={todo.task_description}
+                                onBlur={(event) =>
+                                  updateTodoTask(todo.id, event.target.value)
+                                }
+                                className={`min-w-0 flex-1 rounded border border-app-border bg-app-base px-2 py-1 text-sm font-medium ${
                                   todo.is_complete
                                     ? "text-app-muted line-through"
                                     : "text-white"
                                 }`}
+                              />
+                            </div>
+                            <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-app-muted">
+                              <select
+                                value={todo.owner}
+                                onChange={(event) =>
+                                  updateTodoOwner(todo.id, event.target.value)
+                                }
+                                className="rounded border border-app-border bg-app-base px-2 py-1 text-xs text-white"
                               >
-                                {todo.task_description}
-                              </p>
-                              <span
+                                {ownerOptionsFor(todo.owner).map((ownerOption) => (
+                                  <option key={ownerOption}>{ownerOption}</option>
+                                ))}
+                              </select>
+                              <input
+                                type="date"
+                                value={todo.due_date ?? ""}
+                                onChange={(event) =>
+                                  updateTodoDueDate(todo.id, event.target.value)
+                                }
+                                className="rounded border border-app-border bg-app-base px-2 py-1 text-xs text-white"
+                              />
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  todo.due_date
+                                    ? undefined
+                                    : void updateTodoStatus(todo.id, todoStatus)
+                                }
+                                disabled={Boolean(todo.due_date)}
                                 className={`rounded px-2 py-1 text-[11px] font-semibold ${
                                   todoStatus === "On Track"
                                     ? "bg-emerald-700 text-white"
                                     : "bg-brand text-white"
-                                }`}
+                                } ${todo.due_date ? "cursor-default opacity-80" : ""}`}
                               >
                                 {todoStatus}
-                              </span>
-                            </div>
-                            <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-app-muted">
-                              <span>Due {todo.due_date ?? "unset"}</span>
-                              <span>{todo.is_complete ? "Complete" : "Open"}</span>
+                              </button>
+                              <label className="flex items-center gap-1 rounded border border-app-border px-2 py-1">
+                                <input
+                                  type="checkbox"
+                                  checked={todo.is_complete}
+                                  onChange={() =>
+                                    toggleTodoComplete(todo.id, todo.is_complete)
+                                  }
+                                  className="h-3.5 w-3.5 accent-brand"
+                                />
+                                Done
+                              </label>
                               <button
                                 type="button"
                                 onClick={() => void moveTodoToRock(todo.id)}
                                 className="rounded border border-app-border px-2 py-1 transition hover:text-white"
                               >
                                 Move to Priority
+                              </button>
+                              {saveStatusBadge(`todo-${todo.id}`)}
+                              <button
+                                type="button"
+                                onClick={() => archiveTodo(todo.id)}
+                                className="rounded border border-app-border px-2 py-1 transition hover:text-yellow-500"
+                              >
+                                Archive
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => deleteTodo(todo.id)}
+                                className="rounded border border-app-border px-2 py-1 transition hover:text-brand"
+                              >
+                                Delete
                               </button>
                             </div>
                           </div>
@@ -2963,6 +3245,47 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                         No backlog items.
                       </p>
                     )}
+
+                    <div className="grid gap-2 rounded-lg border border-app-border bg-app-panel p-2">
+                      <input
+                        value={draft.backlogTask}
+                        onChange={(event) =>
+                          setTaskBoardDrafts((previous) => ({
+                            ...previous,
+                            [owner]: {
+                              ...draft,
+                              backlogTask: event.target.value,
+                            },
+                          }))
+                        }
+                        placeholder={`Add backlog for ${owner}`}
+                        className="rounded border border-app-border bg-app-base px-2 py-1 text-sm text-white"
+                      />
+                      <div className="flex gap-2">
+                        <input
+                          type="date"
+                          value={draft.backlogDueDate}
+                          onChange={(event) =>
+                            setTaskBoardDrafts((previous) => ({
+                              ...previous,
+                              [owner]: {
+                                ...draft,
+                                backlogDueDate: event.target.value,
+                              },
+                            }))
+                          }
+                          className="min-w-0 flex-1 rounded border border-app-border bg-app-base px-2 py-1 text-xs text-white"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => void addBacklogTaskForOwner(owner)}
+                          className="rounded border border-brand px-3 py-1 text-xs font-semibold text-brand hover:bg-brand hover:text-white"
+                        >
+                          Add
+                        </button>
+                        {saveStatusBadge(`board-backlog-add-${ownerKey}`)}
+                      </div>
+                    </div>
                   </div>
                 </div>
               </article>
@@ -4856,7 +5179,7 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
           <div className="flex flex-col gap-3">
             <div className="flex flex-col gap-2 md:flex-row md:items-center">
               <p className="text-xs uppercase tracking-[0.12em] text-app-muted">
-                Quick Navigation
+                L10 Agenda
               </p>
               <form
                 onSubmit={(event) => {
@@ -4885,6 +5208,17 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
             </div>
 
             <div className="flex flex-wrap gap-2">
+              {formatSegments.map((segment) => (
+                <span
+                  key={segment.id}
+                  className="rounded-full border border-brand/40 bg-brand/10 px-3 py-1 text-xs text-brand"
+                >
+                  {segment.label} · {segment.duration_minutes}m
+                </span>
+              ))}
+            </div>
+
+            <div className="flex flex-wrap gap-2 border-t border-app-border pt-3">
               {DASHBOARD_SECTIONS.map((section) => (
                 <button
                   key={section.id}
@@ -4934,13 +5268,6 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
             className={`${sectionWrapperClass("financials")} lg:col-span-2`}
           >
             {financialsSection()}
-          </div>
-          <div
-            id="todo-list"
-            ref={registerSectionRef("todo-list")}
-            className={sectionWrapperClass("todo-list")}
-          >
-            {rocksSection()}
           </div>
           <div
             id="tasks-by-person"
@@ -5031,10 +5358,10 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
         >
           {currentSegment === "Segue" && agendaSection()}
           {currentSegment === "Scorecard" && scorecardSection()}
-          {currentSegment === "Rocks" && rocksSection()}
+          {currentSegment === "Rocks" && tasksByPersonSection()}
           {currentSegment === "Headlines" && agendaSection()}
           {currentSegment === "Links" && meetingLinksSection()}
-          {currentSegment === "To-Dos" && rocksSection()}
+          {currentSegment === "To-Dos" && tasksByPersonSection()}
           {currentSegment === "Tasks by Person" && tasksByPersonSection()}
           {currentSegment === "Task Pulse + Calendar" && todoTimelineSection()}
           {currentSegment === "IDS" && issuesSection()}
