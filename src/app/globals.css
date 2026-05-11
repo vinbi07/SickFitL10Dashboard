@@ -183,8 +183,22 @@ body {
   background-color: rgb(231 32 39 / 0.1) !important;
 }
 
+.theme-light .hover\:bg-brand:hover {
+  background-color: #e72027 !important;
+}
+
+.theme-light .hover\:text-white:hover {
+  color: #ffffff !important;
+}
+
 .theme-light .bg-brand,
 .theme-light .bg-emerald-700,
+.theme-light .bg-amber-600,
+.theme-light .bg-blue-600,
+.theme-light .bg-rose-600,
+.theme-light .bg-sky-500,
+.theme-light .bg-slate-600,
+.theme-light .bg-violet-600,
 .theme-light .bg-\[\#e72027\],
 .theme-light .bg-\[\#e72027\]\/25 {
   color: #ffffff !important;

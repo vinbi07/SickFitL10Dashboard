@@ -1,7 +1,14 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from "react";
 import { logoutAction } from "@/app/login/actions";
 import { updateShopifyTargetAction } from "@/app/dashboard/actions";
 import { MeetingTimer } from "@/components/meeting/MeetingTimer";
@@ -80,7 +87,16 @@ const DASHBOARD_SECTIONS = [
   {
     id: "tasks-by-person",
     label: "Tasks by Person",
-    keywords: ["todo", "rocks", "task", "person", "owner", "assigned", "priority", "backlog"],
+    keywords: [
+      "todo",
+      "rocks",
+      "task",
+      "person",
+      "owner",
+      "assigned",
+      "priority",
+      "backlog",
+    ],
   },
   {
     id: "todo-timeline",
@@ -106,6 +122,47 @@ const DASHBOARD_SECTIONS = [
 
 type DashboardSectionId = (typeof DASHBOARD_SECTIONS)[number]["id"];
 type SaveState = "idle" | "saving" | "saved" | "error";
+type BoardTaskType = "rock" | "todo";
+type BoardTaskPriority = "Low" | "Medium" | "High" | "Urgent";
+type BoardTaskStatus = "Todo" | "In Progress" | "Review" | "Completed";
+type BoardTaskLabel = {
+  id: string;
+  name: string;
+  color: string;
+};
+type BoardSubtask = {
+  id: string;
+  title: string;
+  isComplete: boolean;
+};
+type BoardComment = {
+  id: string;
+  author: string;
+  body: string;
+  createdAt: string;
+};
+type BoardAttachment = {
+  id: string;
+  name: string;
+  url: string;
+};
+type BoardTaskDetail = {
+  description: string;
+  notes: string;
+  priority: BoardTaskPriority;
+  status: BoardTaskStatus;
+  labels: BoardTaskLabel[];
+  subtasks: BoardSubtask[];
+  comments: BoardComment[];
+  attachments: BoardAttachment[];
+  estimate: string;
+  relatedLinks: string[];
+  updatedAt: string;
+};
+type SelectedBoardTask = {
+  type: BoardTaskType;
+  id: string;
+};
 type KpiInsightsData = {
   points: Array<{
     label: string;
@@ -225,6 +282,48 @@ function getInitials(fullName: string) {
 function normalizeAccentColor(rawValue?: string | null) {
   const value = (rawValue ?? "").trim();
   return /^#[0-9a-fA-F]{6}$/.test(value) ? value : DEFAULT_ACCENT_COLOR;
+}
+
+function boardTaskKey(task: SelectedBoardTask) {
+  return `${task.type}:${task.id}`;
+}
+
+function createLocalId(prefix: string) {
+  return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function defaultTaskDetail(type: BoardTaskType): BoardTaskDetail {
+  return {
+    description: "",
+    notes: "",
+    priority: type === "rock" ? "High" : "Medium",
+    status: type === "rock" ? "In Progress" : "Todo",
+    labels:
+      type === "rock"
+        ? [{ id: "label-priority", name: "Priority", color: "#e72027" }]
+        : [{ id: "label-backlog", name: "Backlog", color: "#64748b" }],
+    subtasks: [],
+    comments: [],
+    attachments: [],
+    estimate: "",
+    relatedLinks: [],
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function priorityClassName(priority: BoardTaskPriority) {
+  if (priority === "Urgent") return "border-[#e72027] bg-[#e72027] text-white";
+  if (priority === "High") return "border-rose-600 bg-rose-600 text-white";
+  if (priority === "Medium") return "border-amber-600 bg-amber-600 text-white";
+  return "border-sky-500 bg-sky-500 text-white";
+}
+
+function statusClassName(status: BoardTaskStatus) {
+  if (status === "Completed")
+    return "border-emerald-700 bg-emerald-700 text-white";
+  if (status === "Review") return "border-violet-600 bg-violet-600 text-white";
+  if (status === "In Progress") return "border-blue-600 bg-blue-600 text-white";
+  return "border-slate-600 bg-slate-600 text-white";
 }
 
 function toDateKey(date: Date) {
@@ -672,6 +771,22 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
       }
     >
   >({});
+  const [selectedBoardTask, setSelectedBoardTask] =
+    useState<SelectedBoardTask | null>(null);
+  const [taskDetailsByKey, setTaskDetailsByKey] = useState<
+    Record<string, BoardTaskDetail>
+  >({});
+  const [taskBoardSearch, setTaskBoardSearch] = useState("");
+  const [taskBoardPriorityFilter, setTaskBoardPriorityFilter] = useState<
+    BoardTaskPriority | "All"
+  >("All");
+  const [taskBoardStatusFilter, setTaskBoardStatusFilter] = useState<
+    BoardTaskStatus | "All"
+  >("All");
+  const [taskBoardOwnerFilter, setTaskBoardOwnerFilter] = useState("All");
+  const [modalLinkDraft, setModalLinkDraft] = useState("");
+  const [modalAttachmentDraft, setModalAttachmentDraft] = useState("");
+  const [modalLabelDraft, setModalLabelDraft] = useState("");
   const [agendaDrafts, setAgendaDrafts] = useState<
     Record<"Segue" | "Headlines", { text: string; owner: string }>
   >({
@@ -727,6 +842,12 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
   const sectionRefs = useRef<
     Partial<Record<DashboardSectionId, HTMLElement | null>>
   >({});
+  const modalTitleRef = useRef<HTMLInputElement | null>(null);
+  const modalDescriptionRef = useRef<HTMLTextAreaElement | null>(null);
+  const modalNotesRef = useRef<HTMLTextAreaElement | null>(null);
+  const modalEstimateRef = useRef<HTMLInputElement | null>(null);
+  const modalSubtaskRef = useRef<HTMLInputElement | null>(null);
+  const modalCommentRef = useRef<HTMLInputElement | null>(null);
   const highlightTimeoutRef = useRef<number | null>(null);
   const saveStatusTimeoutRef = useRef<Record<string, number>>({});
   const [todayKey, setTodayKey] = useState(() => toDateKey(new Date()));
@@ -841,6 +962,59 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
       borderTopWidth: "3px",
     };
   };
+  const getTaskDetail = (task: SelectedBoardTask) =>
+    taskDetailsByKey[boardTaskKey(task)] ?? defaultTaskDetail(task.type);
+  const updateTaskDetail = (
+    task: SelectedBoardTask,
+    updater: (detail: BoardTaskDetail) => BoardTaskDetail,
+  ) => {
+    setTaskDetailsByKey((previous) => {
+      const current =
+        previous[boardTaskKey(task)] ?? defaultTaskDetail(task.type);
+      return {
+        ...previous,
+        [boardTaskKey(task)]: {
+          ...updater(current),
+          updatedAt: new Date().toISOString(),
+        },
+      };
+    });
+  };
+  const selectedTaskRecord = useMemo(() => {
+    if (!selectedBoardTask) {
+      return null;
+    }
+
+    if (selectedBoardTask.type === "rock") {
+      const row = data.rocks.find((rock) => rock.id === selectedBoardTask.id);
+      if (!row) return null;
+
+      return {
+        type: selectedBoardTask.type,
+        id: row.id,
+        title: row.title,
+        owner: row.owner,
+        dueDate: row.due_date,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+        isComplete: row.status === "On Track",
+      };
+    }
+
+    const row = data.todos.find((todo) => todo.id === selectedBoardTask.id);
+    if (!row) return null;
+
+    return {
+      type: selectedBoardTask.type,
+      id: row.id,
+      title: row.task_description,
+      owner: row.owner,
+      dueDate: row.due_date,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      isComplete: row.is_complete,
+    };
+  }, [data.rocks, data.todos, selectedBoardTask]);
   const taskHealthBySource = useMemo(() => {
     const map = new Map<string, (typeof data.task_health_summary)[number]>();
 
@@ -1314,6 +1488,26 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (!selectedBoardTask) {
+      return;
+    }
+
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setSelectedBoardTask(null);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = "";
+    };
+  }, [selectedBoardTask]);
 
   const filteredSections = useMemo(() => {
     const query = sectionQuery.trim().toLowerCase();
@@ -2012,6 +2206,169 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
     }
 
     setDraggingTask(null);
+  }
+
+  function openBoardTask(type: BoardTaskType, id: string) {
+    setSelectedBoardTask({ type, id });
+  }
+
+  function handleTaskCardKeyDown(
+    event: KeyboardEvent<HTMLDivElement>,
+    type: BoardTaskType,
+    id: string,
+  ) {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      openBoardTask(type, id);
+    }
+  }
+
+  async function updateSelectedTaskTitle(
+    task: SelectedBoardTask,
+    title: string,
+  ) {
+    const statusKey = `${boardTaskKey(task)}-title`;
+    updateSaveStatus(statusKey, "saving");
+
+    if (task.type === "rock") {
+      await updateRockTitle(task.id, title);
+      markSaveSuccess(statusKey);
+      return;
+    }
+
+    await updateTodoTask(task.id, title);
+    markSaveSuccess(statusKey);
+  }
+
+  async function updateSelectedTaskOwner(
+    task: SelectedBoardTask,
+    owner: string,
+  ) {
+    if (task.type === "rock") {
+      await updateRockOwner(task.id, owner);
+      return;
+    }
+
+    await updateTodoOwner(task.id, owner);
+  }
+
+  async function updateSelectedTaskDueDate(
+    task: SelectedBoardTask,
+    dueDate: string,
+  ) {
+    if (task.type === "rock") {
+      await updateRockDueDate(task.id, dueDate);
+      return;
+    }
+
+    await updateTodoDueDate(task.id, dueDate);
+  }
+
+  function addSubtask(task: SelectedBoardTask, title: string) {
+    const nextTitle = title.trim();
+    if (!nextTitle) return;
+
+    updateTaskDetail(task, (detail) => ({
+      ...detail,
+      subtasks: [
+        ...detail.subtasks,
+        { id: createLocalId("subtask"), title: nextTitle, isComplete: false },
+      ],
+    }));
+  }
+
+  function toggleSubtask(task: SelectedBoardTask, subtaskId: string) {
+    updateTaskDetail(task, (detail) => ({
+      ...detail,
+      subtasks: detail.subtasks.map((subtask) =>
+        subtask.id === subtaskId
+          ? { ...subtask, isComplete: !subtask.isComplete }
+          : subtask,
+      ),
+    }));
+  }
+
+  function removeSubtask(task: SelectedBoardTask, subtaskId: string) {
+    updateTaskDetail(task, (detail) => ({
+      ...detail,
+      subtasks: detail.subtasks.filter((subtask) => subtask.id !== subtaskId),
+    }));
+  }
+
+  function addTaskComment(task: SelectedBoardTask, body: string) {
+    const nextBody = body.trim();
+    if (!nextBody) return;
+
+    updateTaskDetail(task, (detail) => ({
+      ...detail,
+      comments: [
+        {
+          id: createLocalId("comment"),
+          author: fallbackAssignee,
+          body: nextBody,
+          createdAt: new Date().toISOString(),
+        },
+        ...detail.comments,
+      ],
+    }));
+  }
+
+  function addRelatedLink(task: SelectedBoardTask, rawUrl: string) {
+    const url = normalizeUrl(rawUrl);
+    if (!url) return;
+
+    updateTaskDetail(task, (detail) => ({
+      ...detail,
+      relatedLinks: [...detail.relatedLinks, url],
+    }));
+  }
+
+  function addTaskAttachment(task: SelectedBoardTask, rawUrl: string) {
+    const url = normalizeUrl(rawUrl);
+    if (!url) return;
+
+    const parsed = new URL(url);
+    updateTaskDetail(task, (detail) => ({
+      ...detail,
+      attachments: [
+        ...detail.attachments,
+        {
+          id: createLocalId("attachment"),
+          name: parsed.pathname.split("/").filter(Boolean).pop() ?? parsed.host,
+          url,
+        },
+      ],
+    }));
+  }
+
+  async function saveTaskDetailField(
+    task: SelectedBoardTask,
+    field: "description" | "notes" | "estimate",
+    value: string,
+  ) {
+    const statusKey = `${boardTaskKey(task)}-${field}`;
+    updateSaveStatus(statusKey, "saving");
+
+    try {
+      updateTaskDetail(task, (current) => ({
+        ...current,
+        [field]: value,
+      }));
+      markSaveSuccess(statusKey);
+    } catch (error) {
+      updateSaveStatus(
+        statusKey,
+        "error",
+        error instanceof Error ? error.message : "Unable to save field",
+      );
+    }
+  }
+
+  function closeTaskDetail() {
+    setSelectedBoardTask(null);
+    setModalLinkDraft("");
+    setModalAttachmentDraft("");
+    setModalLabelDraft("");
   }
 
   async function addAgendaItem(segment: "Segue" | "Headlines") {
@@ -2946,9 +3303,105 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
           </div>
         </div>
 
+        <div className="mt-4 grid grid-cols-1 gap-2 rounded-xl border border-app-border bg-app-base p-3 md:grid-cols-[1fr_140px_150px_140px]">
+          <input
+            value={taskBoardSearch}
+            onChange={(event) => setTaskBoardSearch(event.target.value)}
+            placeholder="Search tasks, notes, labels, or owners..."
+            className="rounded border border-app-border bg-app-panel px-3 py-2 text-sm text-white"
+          />
+          <select
+            value={taskBoardOwnerFilter}
+            onChange={(event) => setTaskBoardOwnerFilter(event.target.value)}
+            className="rounded border border-app-border bg-app-panel px-3 py-2 text-sm text-white"
+          >
+            <option>All</option>
+            {taskOwners.map((owner) => (
+              <option key={owner}>{owner}</option>
+            ))}
+          </select>
+          <select
+            value={taskBoardPriorityFilter}
+            onChange={(event) =>
+              setTaskBoardPriorityFilter(
+                event.target.value as BoardTaskPriority | "All",
+              )
+            }
+            className="rounded border border-app-border bg-app-panel px-3 py-2 text-sm text-white"
+          >
+            <option>All</option>
+            {(["Low", "Medium", "High", "Urgent"] as const).map((priority) => (
+              <option key={priority}>{priority}</option>
+            ))}
+          </select>
+          <select
+            value={taskBoardStatusFilter}
+            onChange={(event) =>
+              setTaskBoardStatusFilter(
+                event.target.value as BoardTaskStatus | "All",
+              )
+            }
+            className="rounded border border-app-border bg-app-panel px-3 py-2 text-sm text-white"
+          >
+            <option>All</option>
+            {(["Todo", "In Progress", "Review", "Completed"] as const).map(
+              (status) => (
+                <option key={status}>{status}</option>
+              ),
+            )}
+          </select>
+        </div>
+
         <div className="mt-4 grid gap-3 overflow-x-auto pb-2 [grid-template-columns:repeat(auto-fit,minmax(340px,1fr))]">
           {activeTasksByOwner.map(({ owner, priority, todos }) => {
-            const totalTasks = priority.length + todos.length;
+            if (
+              taskBoardOwnerFilter !== "All" &&
+              taskBoardOwnerFilter !== owner
+            ) {
+              return null;
+            }
+
+            const matchesTask = (
+              task: SelectedBoardTask,
+              title: string,
+              taskOwner: string,
+            ) => {
+              const detail = getTaskDetail(task);
+              const query = taskBoardSearch.trim().toLowerCase();
+              const matchesQuery =
+                !query ||
+                [
+                  title,
+                  taskOwner,
+                  detail.description,
+                  detail.notes,
+                  detail.priority,
+                  detail.status,
+                  ...detail.labels.map((label) => label.name),
+                ]
+                  .join(" ")
+                  .toLowerCase()
+                  .includes(query);
+              const matchesPriority =
+                taskBoardPriorityFilter === "All" ||
+                detail.priority === taskBoardPriorityFilter;
+              const matchesStatus =
+                taskBoardStatusFilter === "All" ||
+                detail.status === taskBoardStatusFilter;
+
+              return matchesQuery && matchesPriority && matchesStatus;
+            };
+            const filteredPriority = priority.filter((rock) =>
+              matchesTask({ type: "rock", id: rock.id }, rock.title, owner),
+            );
+            const filteredTodos = todos.filter((todo) =>
+              matchesTask(
+                { type: "todo", id: todo.id },
+                todo.task_description,
+                owner,
+              ),
+            );
+            const totalTasks = filteredPriority.length + filteredTodos.length;
             const ownerKey = toStatusKey(owner);
             const draft = taskBoardDrafts[owner] ?? {
               priorityTitle: "",
@@ -2991,88 +3444,168 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                         Priority
                       </p>
                       <span className="text-[11px] text-app-muted">
-                        {priority.length}
+                        {filteredPriority.length}
                       </span>
                     </div>
-                    {priority.length > 0 ? (
-                      priority.map((rock) => (
-                        <div
-                          key={rock.id}
-                          draggable
-                          onDragStart={() =>
-                            setDraggingTask({ type: "rock", id: rock.id })
-                          }
-                          onDragEnd={() => setDraggingTask(null)}
-                          className="rounded-lg border border-app-border bg-app-panel p-3"
-                        >
-                          <div className="flex items-start gap-2">
-                            <span className="select-none pt-1 text-lg leading-none text-app-muted">
-                              ::
-                            </span>
-                            <input
-                              defaultValue={rock.title}
-                              onBlur={(event) =>
-                                updateRockTitle(rock.id, event.target.value)
-                              }
-                              className="min-w-0 flex-1 rounded border border-app-border bg-app-base px-2 py-1 text-sm font-medium text-white"
-                            />
-                          </div>
-                          <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-app-muted">
-                            <select
-                              value={rock.owner}
-                              onChange={(event) =>
-                                updateRockOwner(rock.id, event.target.value)
-                              }
-                              className="rounded border border-app-border bg-app-base px-2 py-1 text-xs text-white"
-                            >
-                              {ownerOptionsFor(rock.owner).map((ownerOption) => (
-                                <option key={ownerOption}>{ownerOption}</option>
+                    {filteredPriority.length > 0 ? (
+                      filteredPriority.map((rock) => {
+                        const task = { type: "rock", id: rock.id } as const;
+                        const detail = getTaskDetail(task);
+                        const completedSubtasks = detail.subtasks.filter(
+                          (subtask) => subtask.isComplete,
+                        ).length;
+                        const progress =
+                          detail.subtasks.length === 0
+                            ? 0
+                            : Math.round(
+                                (completedSubtasks / detail.subtasks.length) *
+                                  100,
+                              );
+
+                        return (
+                          <div
+                            key={rock.id}
+                            role="button"
+                            tabIndex={0}
+                            aria-label={`Open task ${rock.title}`}
+                            onClick={() => openBoardTask("rock", rock.id)}
+                            onKeyDown={(event) =>
+                              handleTaskCardKeyDown(event, "rock", rock.id)
+                            }
+                            draggable
+                            onDragStart={() =>
+                              setDraggingTask({ type: "rock", id: rock.id })
+                            }
+                            onDragEnd={() => setDraggingTask(null)}
+                            className="group cursor-pointer rounded-lg border border-app-border bg-app-panel p-3 shadow-sm transition hover:-translate-y-0.5 hover:border-brand/70 hover:shadow-xl"
+                          >
+                            <div className="mb-2 flex flex-wrap gap-1">
+                              {detail.labels.slice(0, 3).map((label) => (
+                                <span
+                                  key={label.id}
+                                  className="h-2 w-10 rounded-full"
+                                  style={{ backgroundColor: label.color }}
+                                  title={label.name}
+                                />
                               ))}
-                            </select>
-                            <input
-                              type="date"
-                              value={rock.due_date ?? ""}
-                              onChange={(event) =>
-                                updateRockDueDate(rock.id, event.target.value)
-                              }
-                              className="rounded border border-app-border bg-app-base px-2 py-1 text-xs text-white"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => toggleRockStatus(rock.id, rock.status)}
-                              className={`rounded px-2 py-1 text-[11px] font-semibold ${
-                                rock.status === "On Track"
-                                  ? "bg-emerald-700 text-white"
-                                  : "bg-brand text-white"
-                              }`}
+                            </div>
+                            <div
+                              className="flex items-start gap-2"
+                              onClick={(event) => event.stopPropagation()}
                             >
-                              {rock.status}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => void moveRockToTodo(rock.id)}
-                              className="rounded border border-app-border px-2 py-1 transition hover:text-white"
+                              <span className="select-none pt-1 text-lg leading-none text-app-muted group-hover:text-brand">
+                                ::
+                              </span>
+                              <input
+                                defaultValue={rock.title}
+                                onBlur={(event) =>
+                                  updateRockTitle(rock.id, event.target.value)
+                                }
+                                className="min-w-0 flex-1 rounded border border-app-border bg-app-base px-2 py-1 text-sm font-medium text-white"
+                              />
+                            </div>
+                            <div
+                              className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-app-muted"
+                              onClick={(event) => event.stopPropagation()}
                             >
-                              Move to Backlog
-                            </button>
-                            {saveStatusBadge(`rock-${rock.id}`)}
-                            <button
-                              type="button"
-                              onClick={() => archiveRock(rock.id)}
-                              className="rounded border border-app-border px-2 py-1 transition hover:text-yellow-500"
-                            >
-                              Archive
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => deleteRock(rock.id)}
-                              className="rounded border border-app-border px-2 py-1 transition hover:text-brand"
-                            >
-                              Delete
-                            </button>
+                              <span
+                                className={`rounded-full border px-2 py-1 font-semibold ${priorityClassName(detail.priority)}`}
+                              >
+                                {detail.priority}
+                              </span>
+                              <span
+                                className={`rounded-full border px-2 py-1 font-semibold ${statusClassName(detail.status)}`}
+                              >
+                                {detail.status}
+                              </span>
+                              <select
+                                value={rock.owner}
+                                onChange={(event) =>
+                                  updateRockOwner(rock.id, event.target.value)
+                                }
+                                className="rounded border border-app-border bg-app-base px-2 py-1 text-xs text-white"
+                              >
+                                {ownerOptionsFor(rock.owner).map(
+                                  (ownerOption) => (
+                                    <option key={ownerOption}>
+                                      {ownerOption}
+                                    </option>
+                                  ),
+                                )}
+                              </select>
+                              <input
+                                type="date"
+                                value={rock.due_date ?? ""}
+                                onChange={(event) =>
+                                  updateRockDueDate(rock.id, event.target.value)
+                                }
+                                className="rounded border border-app-border bg-app-base px-2 py-1 text-xs text-white"
+                              />
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  toggleRockStatus(rock.id, rock.status)
+                                }
+                                className={`rounded px-2 py-1 text-[11px] font-semibold ${
+                                  rock.status === "On Track"
+                                    ? "bg-emerald-700 text-white"
+                                    : "bg-brand text-white"
+                                }`}
+                              >
+                                {rock.status}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void moveRockToTodo(rock.id)}
+                                className="rounded border border-app-border px-2 py-1 transition hover:text-white"
+                              >
+                                Move to Backlog
+                              </button>
+                              {saveStatusBadge(`rock-${rock.id}`)}
+                              <button
+                                type="button"
+                                onClick={() => archiveRock(rock.id)}
+                                className="rounded border border-app-border px-2 py-1 transition hover:text-yellow-500"
+                              >
+                                Archive
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => deleteRock(rock.id)}
+                                className="rounded border border-app-border px-2 py-1 transition hover:text-brand"
+                              >
+                                Delete
+                              </button>
+                            </div>
+                            <div className="mt-3 flex items-center justify-end gap-2">
+                              <div className="flex items-center gap-2 text-[11px] text-app-muted">
+                                {detail.comments.length > 0 ? (
+                                  <span>{detail.comments.length} comments</span>
+                                ) : null}
+                                {detail.attachments.length > 0 ? (
+                                  <span>{detail.attachments.length} files</span>
+                                ) : null}
+                              </div>
+                            </div>
+                            {detail.subtasks.length > 0 ? (
+                              <div className="mt-3">
+                                <div className="mb-1 flex justify-between text-[11px] text-app-muted">
+                                  <span>Checklist</span>
+                                  <span>
+                                    {completedSubtasks}/{detail.subtasks.length}
+                                  </span>
+                                </div>
+                                <div className="h-1.5 overflow-hidden rounded-full bg-app-base">
+                                  <div
+                                    className="h-full rounded-full bg-brand transition-all"
+                                    style={{ width: `${progress}%` }}
+                                  />
+                                </div>
+                              </div>
+                            ) : null}
                           </div>
-                        </div>
-                      ))
+                        );
+                      })
                     ) : (
                       <p className="rounded border border-dashed border-app-border bg-app-base px-3 py-3 text-sm text-app-muted">
                         No priority items.
@@ -3134,25 +3667,57 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                         Backlog
                       </p>
                       <span className="text-[11px] text-app-muted">
-                        {todos.length}
+                        {filteredTodos.length}
                       </span>
                     </div>
-                    {todos.length > 0 ? (
-                      todos.map((todo) => {
+                    {filteredTodos.length > 0 ? (
+                      filteredTodos.map((todo) => {
                         const todoStatus = todoStatusFor(todo);
+                        const task = { type: "todo", id: todo.id } as const;
+                        const detail = getTaskDetail(task);
+                        const completedSubtasks = detail.subtasks.filter(
+                          (subtask) => subtask.isComplete,
+                        ).length;
+                        const progress =
+                          detail.subtasks.length === 0
+                            ? 0
+                            : Math.round(
+                                (completedSubtasks / detail.subtasks.length) *
+                                  100,
+                              );
 
                         return (
                           <div
                             key={todo.id}
+                            role="button"
+                            tabIndex={0}
+                            aria-label={`Open task ${todo.task_description}`}
+                            onClick={() => openBoardTask("todo", todo.id)}
+                            onKeyDown={(event) =>
+                              handleTaskCardKeyDown(event, "todo", todo.id)
+                            }
                             draggable
                             onDragStart={() =>
                               setDraggingTask({ type: "todo", id: todo.id })
                             }
                             onDragEnd={() => setDraggingTask(null)}
-                            className="rounded-lg border border-app-border bg-app-panel p-3"
+                            className="group cursor-pointer rounded-lg border border-app-border bg-app-panel p-3 shadow-sm transition hover:-translate-y-0.5 hover:border-brand/70 hover:shadow-xl"
                           >
-                            <div className="flex items-start gap-2">
-                              <span className="select-none pt-1 text-lg leading-none text-app-muted">
+                            <div className="mb-2 flex flex-wrap gap-1">
+                              {detail.labels.slice(0, 3).map((label) => (
+                                <span
+                                  key={label.id}
+                                  className="h-2 w-10 rounded-full"
+                                  style={{ backgroundColor: label.color }}
+                                  title={label.name}
+                                />
+                              ))}
+                            </div>
+                            <div
+                              className="flex items-start gap-2"
+                              onClick={(event) => event.stopPropagation()}
+                            >
+                              <span className="select-none pt-1 text-lg leading-none text-app-muted group-hover:text-brand">
                                 ::
                               </span>
                               <input
@@ -3167,7 +3732,20 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                                 }`}
                               />
                             </div>
-                            <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-app-muted">
+                            <div
+                              className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-app-muted"
+                              onClick={(event) => event.stopPropagation()}
+                            >
+                              <span
+                                className={`rounded-full border px-2 py-1 font-semibold ${priorityClassName(detail.priority)}`}
+                              >
+                                {detail.priority}
+                              </span>
+                              <span
+                                className={`rounded-full border px-2 py-1 font-semibold ${statusClassName(detail.status)}`}
+                              >
+                                {detail.status}
+                              </span>
                               <select
                                 value={todo.owner}
                                 onChange={(event) =>
@@ -3175,9 +3753,13 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                                 }
                                 className="rounded border border-app-border bg-app-base px-2 py-1 text-xs text-white"
                               >
-                                {ownerOptionsFor(todo.owner).map((ownerOption) => (
-                                  <option key={ownerOption}>{ownerOption}</option>
-                                ))}
+                                {ownerOptionsFor(todo.owner).map(
+                                  (ownerOption) => (
+                                    <option key={ownerOption}>
+                                      {ownerOption}
+                                    </option>
+                                  ),
+                                )}
                               </select>
                               <input
                                 type="date"
@@ -3208,7 +3790,10 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                                   type="checkbox"
                                   checked={todo.is_complete}
                                   onChange={() =>
-                                    toggleTodoComplete(todo.id, todo.is_complete)
+                                    toggleTodoComplete(
+                                      todo.id,
+                                      todo.is_complete,
+                                    )
                                   }
                                   className="h-3.5 w-3.5 accent-brand"
                                 />
@@ -3237,6 +3822,32 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                                 Delete
                               </button>
                             </div>
+                            <div className="mt-3 flex items-center justify-end gap-2">
+                              <div className="flex items-center gap-2 text-[11px] text-app-muted">
+                                {detail.comments.length > 0 ? (
+                                  <span>{detail.comments.length} comments</span>
+                                ) : null}
+                                {detail.attachments.length > 0 ? (
+                                  <span>{detail.attachments.length} files</span>
+                                ) : null}
+                              </div>
+                            </div>
+                            {detail.subtasks.length > 0 ? (
+                              <div className="mt-3">
+                                <div className="mb-1 flex justify-between text-[11px] text-app-muted">
+                                  <span>Checklist</span>
+                                  <span>
+                                    {completedSubtasks}/{detail.subtasks.length}
+                                  </span>
+                                </div>
+                                <div className="h-1.5 overflow-hidden rounded-full bg-app-base">
+                                  <div
+                                    className="h-full rounded-full bg-brand transition-all"
+                                    style={{ width: `${progress}%` }}
+                                  />
+                                </div>
+                              </div>
+                            ) : null}
                           </div>
                         );
                       })
@@ -3293,6 +3904,535 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
           })}
         </div>
       </section>
+    );
+  }
+
+  function taskDetailDrawer() {
+    if (!selectedBoardTask || !selectedTaskRecord) {
+      return null;
+    }
+
+    const detail = getTaskDetail(selectedBoardTask);
+    const completedSubtasks = detail.subtasks.filter(
+      (subtask) => subtask.isComplete,
+    ).length;
+    const progress =
+      detail.subtasks.length === 0
+        ? 0
+        : Math.round((completedSubtasks / detail.subtasks.length) * 100);
+    const createdDate = new Date(selectedTaskRecord.createdAt).toLocaleString();
+    const updatedDate = new Date(
+      detail.updatedAt || selectedTaskRecord.updatedAt,
+    ).toLocaleString();
+    const selectedTaskKey = boardTaskKey(selectedBoardTask);
+
+    return (
+      <AnimatePresence>
+        <motion.div
+          className="fixed inset-0 z-[80] bg-black/45 backdrop-blur-sm"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          onMouseDown={closeTaskDetail}
+        >
+          <motion.aside
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="task-detail-title"
+            className="absolute right-0 top-0 flex h-full w-full max-w-4xl flex-col overflow-hidden border-l border-app-border bg-app-panel shadow-2xl md:rounded-l-2xl"
+            initial={{ x: "100%" }}
+            animate={{ x: 0 }}
+            exit={{ x: "100%" }}
+            transition={{ type: "spring", damping: 26, stiffness: 260 }}
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3 border-b border-app-border p-4">
+              <div className="min-w-0 flex-1">
+                <div className="mb-2 flex flex-wrap items-center gap-2">
+                  <span className="rounded-full border border-brand/40 bg-brand/10 px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-brand">
+                    {selectedTaskRecord.type === "rock"
+                      ? "Priority"
+                      : "Backlog"}
+                  </span>
+                  <span
+                    className={`rounded-full border px-2 py-1 text-[11px] font-semibold ${priorityClassName(detail.priority)}`}
+                  >
+                    {detail.priority}
+                  </span>
+                  <span
+                    className={`rounded-full border px-2 py-1 text-[11px] font-semibold ${statusClassName(detail.status)}`}
+                  >
+                    {detail.status}
+                  </span>
+                </div>
+                <input
+                  key={`title-${selectedTaskKey}`}
+                  ref={modalTitleRef}
+                  id="task-detail-title"
+                  defaultValue={selectedTaskRecord.title}
+                  className="w-full rounded border border-transparent bg-transparent px-1 py-1 font-heading text-2xl text-white outline-none transition focus:border-app-border focus:bg-app-base"
+                />
+                <div className="mt-2 flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void updateSelectedTaskTitle(
+                        selectedBoardTask,
+                        modalTitleRef.current?.value ??
+                          selectedTaskRecord.title,
+                      )
+                    }
+                    className="rounded border border-brand px-3 py-1 text-xs font-semibold text-brand transition hover:bg-brand hover:text-white"
+                  >
+                    Save Title
+                  </button>
+                  {saveStatusBadge(`${selectedTaskKey}-title`)}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={closeTaskDetail}
+                className="rounded-lg border border-app-border px-3 py-2 text-sm text-app-muted transition hover:text-brand"
+                aria-label="Close task details"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="grid flex-1 overflow-y-auto md:grid-cols-[1fr_260px]">
+              <div className="space-y-4 p-4">
+                <section className="rounded-xl border border-app-border bg-black p-3">
+                  <h3 className="text-sm font-semibold text-white">
+                    Description
+                  </h3>
+                  <textarea
+                    key={`description-${selectedTaskKey}`}
+                    ref={modalDescriptionRef}
+                    defaultValue={detail.description}
+                    placeholder="Add context, acceptance criteria, @mentions, or background..."
+                    className="mt-2 min-h-28 w-full rounded border border-app-border bg-app-base px-3 py-2 text-sm text-white"
+                  />
+                  <div className="mt-2 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void saveTaskDetailField(
+                          selectedBoardTask,
+                          "description",
+                          modalDescriptionRef.current?.value ??
+                            detail.description,
+                        )
+                      }
+                      className="rounded border border-brand px-3 py-1 text-xs font-semibold text-brand transition hover:bg-brand hover:text-white"
+                    >
+                      Save Description
+                    </button>
+                    {saveStatusBadge(`${selectedTaskKey}-description`)}
+                  </div>
+                </section>
+
+                <section className="rounded-xl border border-app-border bg-black p-3">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-semibold text-white">
+                      Checklist
+                    </h3>
+                    <span className="text-xs text-app-muted">
+                      {completedSubtasks}/{detail.subtasks.length}
+                    </span>
+                  </div>
+                  <div className="mt-2 h-2 overflow-hidden rounded-full bg-app-base">
+                    <div
+                      className="h-full rounded-full bg-brand transition-all"
+                      style={{ width: `${progress}%` }}
+                    />
+                  </div>
+                  <div className="mt-3 space-y-2">
+                    {detail.subtasks.map((subtask) => (
+                      <label
+                        key={subtask.id}
+                        className="flex items-center gap-2 rounded border border-app-border bg-app-base px-3 py-2 text-sm text-white"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={subtask.isComplete}
+                          onChange={() =>
+                            toggleSubtask(selectedBoardTask, subtask.id)
+                          }
+                          className="h-4 w-4 accent-brand"
+                        />
+                        <span
+                          className={`flex-1 ${
+                            subtask.isComplete
+                              ? "text-app-muted line-through"
+                              : ""
+                          }`}
+                        >
+                          {subtask.title}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.preventDefault();
+                            removeSubtask(selectedBoardTask, subtask.id);
+                          }}
+                          className="text-xs text-app-muted hover:text-brand"
+                        >
+                          Remove
+                        </button>
+                      </label>
+                    ))}
+                  </div>
+                  <div className="mt-3 flex gap-2">
+                    <input
+                      key={`subtask-draft-${selectedTaskKey}`}
+                      ref={modalSubtaskRef}
+                      placeholder="Add subtask"
+                      className="min-w-0 flex-1 rounded border border-app-border bg-app-base px-3 py-2 text-sm text-white"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        addSubtask(
+                          selectedBoardTask,
+                          modalSubtaskRef.current?.value ?? "",
+                        );
+                        if (modalSubtaskRef.current) {
+                          modalSubtaskRef.current.value = "";
+                        }
+                      }}
+                      className="rounded border border-brand px-3 py-2 text-sm font-semibold text-brand hover:bg-brand hover:text-white"
+                    >
+                      Add
+                    </button>
+                  </div>
+                </section>
+
+                <section className="rounded-xl border border-app-border bg-black p-3">
+                  <h3 className="text-sm font-semibold text-white">Notes</h3>
+                  <textarea
+                    key={`notes-${selectedTaskKey}`}
+                    ref={modalNotesRef}
+                    defaultValue={detail.notes}
+                    placeholder="Private notes, blockers, or next-step thinking..."
+                    className="mt-2 min-h-24 w-full rounded border border-app-border bg-app-base px-3 py-2 text-sm text-white"
+                  />
+                  <div className="mt-2 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void saveTaskDetailField(
+                          selectedBoardTask,
+                          "notes",
+                          modalNotesRef.current?.value ?? detail.notes,
+                        )
+                      }
+                      className="rounded border border-brand px-3 py-1 text-xs font-semibold text-brand transition hover:bg-brand hover:text-white"
+                    >
+                      Save Notes
+                    </button>
+                    {saveStatusBadge(`${selectedTaskKey}-notes`)}
+                  </div>
+                </section>
+
+                <section className="rounded-xl border border-app-border bg-black p-3">
+                  <h3 className="text-sm font-semibold text-white">
+                    Comments & Activity
+                  </h3>
+                  <div className="mt-3 flex gap-2">
+                    <input
+                      key={`comment-draft-${selectedTaskKey}`}
+                      ref={modalCommentRef}
+                      placeholder="Add comment or @mention..."
+                      className="min-w-0 flex-1 rounded border border-app-border bg-app-base px-3 py-2 text-sm text-white"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        addTaskComment(
+                          selectedBoardTask,
+                          modalCommentRef.current?.value ?? "",
+                        );
+                        if (modalCommentRef.current) {
+                          modalCommentRef.current.value = "";
+                        }
+                      }}
+                      className="rounded border border-brand px-3 py-2 text-sm font-semibold text-brand hover:bg-brand hover:text-white"
+                    >
+                      Post
+                    </button>
+                  </div>
+                  <div className="mt-3 space-y-2">
+                    {detail.comments.length > 0 ? (
+                      detail.comments.map((comment) => (
+                        <article
+                          key={comment.id}
+                          className="rounded border border-app-border bg-app-base px-3 py-2"
+                        >
+                          <div className="flex items-center justify-between gap-2 text-xs text-app-muted">
+                            <span>{comment.author}</span>
+                            <span>
+                              {new Date(comment.createdAt).toLocaleString()}
+                            </span>
+                          </div>
+                          <p className="mt-1 text-sm text-white">
+                            {comment.body}
+                          </p>
+                        </article>
+                      ))
+                    ) : (
+                      <p className="rounded border border-dashed border-app-border bg-app-base px-3 py-4 text-sm text-app-muted">
+                        No activity yet.
+                      </p>
+                    )}
+                  </div>
+                </section>
+              </div>
+
+              <aside className="space-y-4 border-t border-app-border bg-app-base p-4 md:border-l md:border-t-0">
+                <section className="rounded-xl border border-app-border bg-app-panel p-3">
+                  <h3 className="text-sm font-semibold text-white">Details</h3>
+                  <div className="mt-3 space-y-2">
+                    <label className="block text-xs text-app-muted">
+                      Owner
+                      <select
+                        value={selectedTaskRecord.owner}
+                        onChange={(event) =>
+                          void updateSelectedTaskOwner(
+                            selectedBoardTask,
+                            event.target.value,
+                          )
+                        }
+                        className="mt-1 w-full rounded border border-app-border bg-app-base px-2 py-2 text-sm text-white"
+                      >
+                        {ownerOptionsFor(selectedTaskRecord.owner).map(
+                          (owner) => (
+                            <option key={owner}>{owner}</option>
+                          ),
+                        )}
+                      </select>
+                    </label>
+                    <label className="block text-xs text-app-muted">
+                      Priority
+                      <select
+                        value={detail.priority}
+                        onChange={(event) =>
+                          updateTaskDetail(selectedBoardTask, (current) => ({
+                            ...current,
+                            priority: event.target.value as BoardTaskPriority,
+                          }))
+                        }
+                        className="mt-1 w-full rounded border border-app-border bg-app-base px-2 py-2 text-sm text-white"
+                      >
+                        {(["Low", "Medium", "High", "Urgent"] as const).map(
+                          (priority) => (
+                            <option key={priority}>{priority}</option>
+                          ),
+                        )}
+                      </select>
+                    </label>
+                    <label className="block text-xs text-app-muted">
+                      Status
+                      <select
+                        value={detail.status}
+                        onChange={(event) =>
+                          updateTaskDetail(selectedBoardTask, (current) => ({
+                            ...current,
+                            status: event.target.value as BoardTaskStatus,
+                          }))
+                        }
+                        className="mt-1 w-full rounded border border-app-border bg-app-base px-2 py-2 text-sm text-white"
+                      >
+                        {(
+                          [
+                            "Todo",
+                            "In Progress",
+                            "Review",
+                            "Completed",
+                          ] as const
+                        ).map((status) => (
+                          <option key={status}>{status}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="block text-xs text-app-muted">
+                      Due date
+                      <input
+                        type="date"
+                        value={selectedTaskRecord.dueDate ?? ""}
+                        onChange={(event) =>
+                          void updateSelectedTaskDueDate(
+                            selectedBoardTask,
+                            event.target.value,
+                          )
+                        }
+                        className="mt-1 w-full rounded border border-app-border bg-app-base px-2 py-2 text-sm text-white"
+                      />
+                    </label>
+                    <label className="block text-xs text-app-muted">
+                      Estimate
+                      <input
+                        key={`estimate-${selectedTaskKey}`}
+                        ref={modalEstimateRef}
+                        defaultValue={detail.estimate}
+                        placeholder="2h, 1d, 30m..."
+                        className="mt-1 w-full rounded border border-app-border bg-app-base px-2 py-2 text-sm text-white"
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void saveTaskDetailField(
+                          selectedBoardTask,
+                          "estimate",
+                          modalEstimateRef.current?.value ?? detail.estimate,
+                        )
+                      }
+                      className="w-full rounded border border-brand px-3 py-2 text-xs font-semibold text-brand transition hover:bg-brand hover:text-white"
+                    >
+                      Save Estimate
+                    </button>
+                    {saveStatusBadge(`${selectedTaskKey}-estimate`)}
+                  </div>
+                  <div className="mt-3 rounded border border-app-border bg-app-base px-3 py-2 text-xs text-app-muted">
+                    <p>Created {createdDate}</p>
+                    <p>Updated {updatedDate}</p>
+                  </div>
+                </section>
+
+                <section className="rounded-xl border border-app-border bg-app-panel p-3">
+                  <h3 className="text-sm font-semibold text-white">Labels</h3>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {detail.labels.map((label) => (
+                      <span
+                        key={label.id}
+                        className="rounded-full px-2 py-1 text-xs font-semibold text-white"
+                        style={{ backgroundColor: label.color }}
+                      >
+                        {label.name}
+                      </span>
+                    ))}
+                  </div>
+                  <div className="mt-3 flex gap-2">
+                    <input
+                      value={modalLabelDraft}
+                      onChange={(event) =>
+                        setModalLabelDraft(event.target.value)
+                      }
+                      placeholder="New label"
+                      className="min-w-0 flex-1 rounded border border-app-border bg-app-base px-2 py-2 text-sm text-white"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const name = modalLabelDraft.trim();
+                        if (!name) return;
+                        updateTaskDetail(selectedBoardTask, (current) => ({
+                          ...current,
+                          labels: [
+                            ...current.labels,
+                            {
+                              id: createLocalId("label"),
+                              name,
+                              color: name.toLowerCase().includes("block")
+                                ? "#e72027"
+                                : "#2563eb",
+                            },
+                          ],
+                        }));
+                        setModalLabelDraft("");
+                      }}
+                      className="rounded border border-brand px-3 py-2 text-xs font-semibold text-brand hover:bg-brand hover:text-white"
+                    >
+                      Add
+                    </button>
+                  </div>
+                </section>
+
+                <section className="rounded-xl border border-app-border bg-app-panel p-3">
+                  <h3 className="text-sm font-semibold text-white">
+                    Attachments
+                  </h3>
+                  <div className="mt-2 space-y-2">
+                    {detail.attachments.map((attachment) => (
+                      <a
+                        key={attachment.id}
+                        href={attachment.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="block rounded border border-app-border bg-app-base px-3 py-2 text-xs text-brand hover:underline"
+                      >
+                        {attachment.name}
+                      </a>
+                    ))}
+                  </div>
+                  <div className="mt-3 flex gap-2">
+                    <input
+                      value={modalAttachmentDraft}
+                      onChange={(event) =>
+                        setModalAttachmentDraft(event.target.value)
+                      }
+                      placeholder="File/image URL"
+                      className="min-w-0 flex-1 rounded border border-app-border bg-app-base px-2 py-2 text-sm text-white"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        addTaskAttachment(
+                          selectedBoardTask,
+                          modalAttachmentDraft,
+                        );
+                        setModalAttachmentDraft("");
+                      }}
+                      className="rounded border border-brand px-3 py-2 text-xs font-semibold text-brand hover:bg-brand hover:text-white"
+                    >
+                      Add
+                    </button>
+                  </div>
+                </section>
+
+                <section className="rounded-xl border border-app-border bg-app-panel p-3">
+                  <h3 className="text-sm font-semibold text-white">
+                    Related Links
+                  </h3>
+                  <div className="mt-2 space-y-2">
+                    {detail.relatedLinks.map((link) => (
+                      <a
+                        key={link}
+                        href={link}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="block truncate rounded border border-app-border bg-app-base px-3 py-2 text-xs text-brand hover:underline"
+                      >
+                        {link}
+                      </a>
+                    ))}
+                  </div>
+                  <div className="mt-3 flex gap-2">
+                    <input
+                      value={modalLinkDraft}
+                      onChange={(event) =>
+                        setModalLinkDraft(event.target.value)
+                      }
+                      placeholder="https://..."
+                      className="min-w-0 flex-1 rounded border border-app-border bg-app-base px-2 py-2 text-sm text-white"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        addRelatedLink(selectedBoardTask, modalLinkDraft);
+                        setModalLinkDraft("");
+                      }}
+                      className="rounded border border-brand px-3 py-2 text-xs font-semibold text-brand hover:bg-brand hover:text-white"
+                    >
+                      Add
+                    </button>
+                  </div>
+                </section>
+              </aside>
+            </div>
+          </motion.aside>
+        </motion.div>
+      </AnimatePresence>
     );
   }
 
@@ -5370,6 +6510,7 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
             customSegmentSection(currentFormatSegment.label)}
         </PresentationSlider>
       )}
+      {taskDetailDrawer()}
     </div>
   );
 }
