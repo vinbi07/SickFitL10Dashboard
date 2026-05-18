@@ -157,6 +157,61 @@ type BoardTaskLabel = {
   name: string;
   color: string;
 };
+type TaskDetailSourceTable = "rocks" | "todos";
+type TaskDetailRow = {
+  id: string;
+  source_table: TaskDetailSourceTable;
+  source_id: string;
+  description: string;
+  notes: string;
+  priority: BoardTaskPriority;
+  status: BoardTaskStatus;
+  estimate_minutes: number | null;
+  created_at: string;
+  updated_at: string;
+};
+type TaskSubtaskRow = {
+  id: string;
+  task_detail_id: string;
+  title: string;
+  is_complete: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+};
+type TaskLabelRow = {
+  id: string;
+  name: string;
+  color: string;
+};
+type TaskLabelAssignmentRow = {
+  id: string;
+  task_detail_id: string;
+  label_id: string;
+  created_at: string;
+};
+type TaskCommentRow = {
+  id: string;
+  task_detail_id: string;
+  author: string;
+  body: string;
+  created_at: string;
+};
+type TaskAttachmentRow = {
+  id: string;
+  task_detail_id: string;
+  name: string;
+  url: string;
+  file_type: string | null;
+  created_at: string;
+};
+type TaskLinkRow = {
+  id: string;
+  task_detail_id: string;
+  title: string | null;
+  url: string;
+  created_at: string;
+};
 type BoardSubtask = {
   id: string;
   title: string;
@@ -311,12 +366,73 @@ function normalizeAccentColor(rawValue?: string | null) {
   return /^#[0-9a-fA-F]{6}$/.test(value) ? value : DEFAULT_ACCENT_COLOR;
 }
 
+function escapeHtml(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
 function boardTaskKey(task: SelectedBoardTask) {
   return `${task.type}:${task.id}`;
 }
 
 function createLocalId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function taskSourceTable(task: SelectedBoardTask): TaskDetailSourceTable {
+  return task.type === "rock" ? "rocks" : "todos";
+}
+
+function parseEstimateMinutes(value: string) {
+  const trimmed = value.trim().toLowerCase();
+  if (!trimmed) {
+    return null;
+  }
+
+  const numericMinutes = Number(trimmed);
+  if (Number.isFinite(numericMinutes)) {
+    return Math.max(0, Math.round(numericMinutes));
+  }
+
+  const match = trimmed.match(/^(\d+(?:\.\d+)?)([mhd])$/);
+  if (!match) {
+    return null;
+  }
+
+  const amount = Number(match[1]);
+  if (!Number.isFinite(amount)) {
+    return null;
+  }
+
+  if (match[2] === "h") {
+    return Math.round(amount * 60);
+  }
+
+  if (match[2] === "d") {
+    return Math.round(amount * 480);
+  }
+
+  return Math.round(amount);
+}
+
+function formatEstimateMinutes(minutes: number | null) {
+  if (minutes === null || minutes === undefined) {
+    return "";
+  }
+
+  if (minutes % 480 === 0 && minutes !== 0) {
+    return `${minutes / 480}d`;
+  }
+
+  if (minutes % 60 === 0 && minutes !== 0) {
+    return `${minutes / 60}h`;
+  }
+
+  return `${minutes}m`;
 }
 
 function defaultTaskDetail(type: BoardTaskType): BoardTaskDetail {
@@ -874,11 +990,12 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
     Partial<Record<DashboardSectionId, HTMLElement | null>>
   >({});
   const modalTitleRef = useRef<HTMLInputElement | null>(null);
-  const modalDescriptionRef = useRef<HTMLTextAreaElement | null>(null);
+  const modalDescriptionRef = useRef<HTMLDivElement | null>(null);
   const modalNotesRef = useRef<HTMLTextAreaElement | null>(null);
   const modalEstimateRef = useRef<HTMLInputElement | null>(null);
   const modalSubtaskRef = useRef<HTMLInputElement | null>(null);
   const modalCommentRef = useRef<HTMLInputElement | null>(null);
+  const taskDetailsHydratedRef = useRef(false);
   const highlightTimeoutRef = useRef<number | null>(null);
   const modalLoadingTimeoutRef = useRef<number | null>(null);
   const saveStatusTimeoutRef = useRef<Record<string, number>>({});
@@ -895,6 +1012,290 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
   }, []);
 
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
+
+  useEffect(() => {
+    if (taskDetailsHydratedRef.current) {
+      return;
+    }
+
+    taskDetailsHydratedRef.current = true;
+    let cancelled = false;
+
+    async function hydrateTaskDetails() {
+      const [taskDetailsResult, subtasksResult, labelsResult, assignmentsResult, commentsResult, attachmentsResult, linksResult] =
+        await Promise.all([
+          supabase.from("task_details").select("*"),
+          supabase.from("task_subtasks").select("*"),
+          supabase.from("task_labels").select("*"),
+          supabase.from("task_label_assignments").select("*"),
+          supabase.from("task_comments").select("*").order("created_at", { ascending: true }),
+          supabase.from("task_attachments").select("*").order("created_at", { ascending: true }),
+          supabase.from("task_links").select("*").order("created_at", { ascending: true }),
+        ]);
+
+      if (cancelled) {
+        return;
+      }
+
+      if (
+        taskDetailsResult.error ||
+        subtasksResult.error ||
+        labelsResult.error ||
+        assignmentsResult.error ||
+        commentsResult.error ||
+        attachmentsResult.error ||
+        linksResult.error
+      ) {
+        return;
+      }
+
+      const labelById = new Map<string, TaskLabelRow>();
+      for (const label of labelsResult.data ?? []) {
+        labelById.set(label.id, label as TaskLabelRow);
+      }
+
+      const labelsByDetailId = new Map<string, BoardTaskLabel[]>();
+      for (const assignment of assignmentsResult.data ?? []) {
+        const label = labelById.get(assignment.label_id);
+        if (!label) {
+          continue;
+        }
+
+        const labelList = labelsByDetailId.get(assignment.task_detail_id) ?? [];
+        labelList.push({ id: label.id, name: label.name, color: label.color });
+        labelsByDetailId.set(assignment.task_detail_id, labelList);
+      }
+
+      const subtasksByDetailId = new Map<string, BoardSubtask[]>();
+      for (const subtask of subtasksResult.data ?? []) {
+        const nextSubtasks = subtasksByDetailId.get(subtask.task_detail_id) ?? [];
+        nextSubtasks.push({
+          id: subtask.id,
+          title: subtask.title,
+          isComplete: subtask.is_complete,
+        });
+        subtasksByDetailId.set(subtask.task_detail_id, nextSubtasks);
+      }
+
+      const commentsByDetailId = new Map<string, BoardComment[]>();
+      for (const comment of commentsResult.data ?? []) {
+        const nextComments = commentsByDetailId.get(comment.task_detail_id) ?? [];
+        nextComments.push({
+          id: comment.id,
+          author: comment.author,
+          body: comment.body,
+          createdAt: comment.created_at,
+        });
+        commentsByDetailId.set(comment.task_detail_id, nextComments);
+      }
+
+      const attachmentsByDetailId = new Map<string, BoardAttachment[]>();
+      for (const attachment of attachmentsResult.data ?? []) {
+        const nextAttachments = attachmentsByDetailId.get(attachment.task_detail_id) ?? [];
+        nextAttachments.push({
+          id: attachment.id,
+          name: attachment.name,
+          url: attachment.url,
+        });
+        attachmentsByDetailId.set(attachment.task_detail_id, nextAttachments);
+      }
+
+      const linksByDetailId = new Map<string, string[]>();
+      for (const link of linksResult.data ?? []) {
+        const nextLinks = linksByDetailId.get(link.task_detail_id) ?? [];
+        nextLinks.push(link.url);
+        linksByDetailId.set(link.task_detail_id, nextLinks);
+      }
+
+      const nextTaskDetailsByKey: Record<string, BoardTaskDetail> = {};
+      for (const taskDetail of (taskDetailsResult.data ?? []) as TaskDetailRow[]) {
+        nextTaskDetailsByKey[`${taskDetail.source_table}:${taskDetail.source_id}`] = {
+          description: taskDetail.description,
+          notes: taskDetail.notes,
+          priority: taskDetail.priority,
+          status: taskDetail.status,
+          labels: labelsByDetailId.get(taskDetail.id) ?? [],
+          subtasks: subtasksByDetailId.get(taskDetail.id) ?? [],
+          comments: commentsByDetailId.get(taskDetail.id) ?? [],
+          attachments: attachmentsByDetailId.get(taskDetail.id) ?? [],
+          estimate: formatEstimateMinutes(taskDetail.estimate_minutes),
+          relatedLinks: linksByDetailId.get(taskDetail.id) ?? [],
+          updatedAt: taskDetail.updated_at,
+        };
+      }
+
+      setTaskDetailsByKey(nextTaskDetailsByKey);
+    }
+
+    void hydrateTaskDetails();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase]);
+
+  useEffect(() => {
+    if (!selectedBoardTask) {
+      return;
+    }
+
+    const activeTask = selectedBoardTask;
+
+    let cancelled = false;
+
+    async function loadSelectedTaskDetail() {
+      setTaskModalLoading(true);
+
+      const [taskDetailsResult, subtasksResult, labelsResult, assignmentsResult, commentsResult, attachmentsResult, linksResult] =
+        await Promise.all([
+          supabase
+            .from("task_details")
+            .select("*")
+            .eq("source_table", taskSourceTable(activeTask))
+            .eq("source_id", activeTask.id)
+            .maybeSingle(),
+          supabase
+            .from("task_subtasks")
+            .select("*")
+            .order("sort_order", { ascending: true }),
+          supabase.from("task_labels").select("*"),
+          supabase.from("task_label_assignments").select("*"),
+          supabase.from("task_comments").select("*").order("created_at", { ascending: true }),
+          supabase.from("task_attachments").select("*").order("created_at", { ascending: true }),
+          supabase.from("task_links").select("*").order("created_at", { ascending: true }),
+        ]);
+
+      if (cancelled) {
+        return;
+      }
+
+      if (
+        taskDetailsResult.error ||
+        subtasksResult.error ||
+        labelsResult.error ||
+        assignmentsResult.error ||
+        commentsResult.error ||
+        attachmentsResult.error ||
+        linksResult.error
+      ) {
+        setTaskModalLoading(false);
+        return;
+      }
+
+      const taskDetail = taskDetailsResult.data as TaskDetailRow | null;
+      if (!taskDetail) {
+        setTaskModalLoading(false);
+        return;
+      }
+
+      const labelById = new Map<string, TaskLabelRow>();
+      for (const label of labelsResult.data ?? []) {
+        labelById.set(label.id, label as TaskLabelRow);
+      }
+
+      const labelsByDetailId = new Map<string, BoardTaskLabel[]>();
+      for (const assignment of assignmentsResult.data ?? []) {
+        const label = labelById.get(assignment.label_id);
+        if (!label) continue;
+
+        const nextLabels = labelsByDetailId.get(assignment.task_detail_id) ?? [];
+        nextLabels.push({ id: label.id, name: label.name, color: label.color });
+        labelsByDetailId.set(assignment.task_detail_id, nextLabels);
+      }
+
+      const subtasksByDetailId = new Map<string, BoardSubtask[]>();
+      for (const subtask of (subtasksResult.data ?? []) as TaskSubtaskRow[]) {
+        const nextSubtasks = subtasksByDetailId.get(subtask.task_detail_id) ?? [];
+        nextSubtasks.push({
+          id: subtask.id,
+          title: subtask.title,
+          isComplete: subtask.is_complete,
+        });
+        subtasksByDetailId.set(subtask.task_detail_id, nextSubtasks);
+      }
+
+      const commentsByDetailId = new Map<string, BoardComment[]>();
+      for (const comment of (commentsResult.data ?? []) as TaskCommentRow[]) {
+        const nextComments = commentsByDetailId.get(comment.task_detail_id) ?? [];
+        nextComments.push({
+          id: comment.id,
+          author: comment.author,
+          body: comment.body,
+          createdAt: comment.created_at,
+        });
+        commentsByDetailId.set(comment.task_detail_id, nextComments);
+      }
+
+      const attachmentsByDetailId = new Map<string, BoardAttachment[]>();
+      for (const attachment of (attachmentsResult.data ?? []) as TaskAttachmentRow[]) {
+        const nextAttachments = attachmentsByDetailId.get(attachment.task_detail_id) ?? [];
+        nextAttachments.push({
+          id: attachment.id,
+          name: attachment.name,
+          url: attachment.url,
+        });
+        attachmentsByDetailId.set(attachment.task_detail_id, nextAttachments);
+      }
+
+      const linksByDetailId = new Map<string, string[]>();
+      for (const link of (linksResult.data ?? []) as TaskLinkRow[]) {
+        const nextLinks = linksByDetailId.get(link.task_detail_id) ?? [];
+        nextLinks.push(link.url);
+        linksByDetailId.set(link.task_detail_id, nextLinks);
+      }
+
+      const nextDetail: BoardTaskDetail = {
+        description: taskDetail.description,
+        notes: taskDetail.notes,
+        priority: taskDetail.priority,
+        status: taskDetail.status,
+        labels: labelsByDetailId.get(taskDetail.id) ?? [],
+        subtasks: subtasksByDetailId.get(taskDetail.id) ?? [],
+        comments: commentsByDetailId.get(taskDetail.id) ?? [],
+        attachments: attachmentsByDetailId.get(taskDetail.id) ?? [],
+        estimate: formatEstimateMinutes(taskDetail.estimate_minutes),
+        relatedLinks: linksByDetailId.get(taskDetail.id) ?? [],
+        updatedAt: taskDetail.updated_at,
+      };
+
+      const key = boardTaskKey(activeTask);
+      setTaskDetailsByKey((previous) => ({
+        ...previous,
+        [key]: nextDetail,
+      }));
+      setTaskModalLoading(false);
+    }
+
+    void loadSelectedTaskDetail();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedBoardTask, supabase]);
+
+  useEffect(() => {
+    if (!selectedBoardTask) {
+      return;
+    }
+
+    const editor = modalDescriptionRef.current;
+    if (!editor) {
+      return;
+    }
+
+    const detail = getTaskDetail(selectedBoardTask);
+    const rawDescription = detail.description.trim();
+    const looksLikeHtml = /<\/?[a-z][\s\S]*>/i.test(rawDescription);
+    const nextHtml = rawDescription
+      ? looksLikeHtml
+        ? rawDescription
+        : `<p>${escapeHtml(rawDescription).replaceAll("\n", "<br />")}</p>`
+      : "<p><br /></p>";
+
+    if (editor.innerHTML !== nextHtml) {
+      editor.innerHTML = nextHtml;
+    }
+  }, [selectedBoardTask, taskDetailsByKey]);
   const assignableOwners = useMemo(() => {
     const activeNames = data.people
       .filter((person) => person.is_active)
@@ -1002,17 +1403,21 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
     task: SelectedBoardTask,
     updater: (detail: BoardTaskDetail) => BoardTaskDetail,
   ) => {
+    const key = boardTaskKey(task);
+    const current = taskDetailsByKey[key] ?? defaultTaskDetail(task.type);
+    const nextDetail = {
+      ...updater(current),
+      updatedAt: new Date().toISOString(),
+    };
+
     setTaskDetailsByKey((previous) => {
-      const current =
-        previous[boardTaskKey(task)] ?? defaultTaskDetail(task.type);
       return {
         ...previous,
-        [boardTaskKey(task)]: {
-          ...updater(current),
-          updatedAt: new Date().toISOString(),
-        },
+        [key]: nextDetail,
       };
     });
+
+    return nextDetail;
   };
   const selectedTaskRecord = useMemo(() => {
     if (!selectedBoardTask) {
@@ -2335,15 +2740,13 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
   }
 
   function openBoardTask(type: BoardTaskType, id: string) {
-    if (modalLoadingTimeoutRef.current !== null) {
-      window.clearTimeout(modalLoadingTimeoutRef.current);
-    }
-
     setTaskModalLoading(true);
     setSelectedBoardTask({ type, id });
-    modalLoadingTimeoutRef.current = window.setTimeout(() => {
-      setTaskModalLoading(false);
-    }, 220);
+  }
+
+  function applyDescriptionFormat(command: "bold" | "italic" | "underline" | "insertUnorderedList") {
+    document.execCommand(command, false);
+    modalDescriptionRef.current?.focus();
   }
 
   function handleTaskCardKeyDown(
@@ -2398,21 +2801,175 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
     await updateTodoDueDate(task.id, dueDate);
   }
 
+  async function persistTaskDetail(
+    task: SelectedBoardTask,
+    detail: BoardTaskDetail,
+  ) {
+    const { data: taskDetailRow, error: taskDetailError } = await supabase
+      .from("task_details")
+      .upsert(
+        {
+          source_table: taskSourceTable(task),
+          source_id: task.id,
+          description: detail.description,
+          notes: detail.notes,
+          priority: detail.priority,
+          status: detail.status,
+          estimate_minutes: parseEstimateMinutes(detail.estimate),
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "source_table,source_id" },
+      )
+      .select("id")
+      .single();
+
+    if (taskDetailError || !taskDetailRow) {
+      throw new Error(taskDetailError?.message ?? "Unable to save task detail");
+    }
+
+    const taskDetailId = taskDetailRow.id;
+
+    const deleteResults = await Promise.all([
+      supabase.from("task_subtasks").delete().eq("task_detail_id", taskDetailId),
+      supabase.from("task_comments").delete().eq("task_detail_id", taskDetailId),
+      supabase.from("task_attachments").delete().eq("task_detail_id", taskDetailId),
+      supabase.from("task_links").delete().eq("task_detail_id", taskDetailId),
+      supabase.from("task_label_assignments").delete().eq("task_detail_id", taskDetailId),
+    ]);
+
+    const deleteError = deleteResults.find((result) => result.error)?.error;
+    if (deleteError) {
+      throw new Error(deleteError.message);
+    }
+
+    for (const [index, subtask] of detail.subtasks.entries()) {
+      const { error } = await supabase.from("task_subtasks").insert({
+        task_detail_id: taskDetailId,
+        title: subtask.title,
+        is_complete: subtask.isComplete,
+        sort_order: index,
+      });
+
+      if (error) {
+        throw new Error(error.message);
+      }
+    }
+
+    for (const comment of detail.comments) {
+      const { error } = await supabase.from("task_comments").insert({
+        task_detail_id: taskDetailId,
+        author: comment.author,
+        body: comment.body,
+      });
+
+      if (error) {
+        throw new Error(error.message);
+      }
+    }
+
+    for (const attachment of detail.attachments) {
+      const { error } = await supabase.from("task_attachments").insert({
+        task_detail_id: taskDetailId,
+        name: attachment.name,
+        url: attachment.url,
+        file_type: null,
+      });
+
+      if (error) {
+        throw new Error(error.message);
+      }
+    }
+
+    for (const url of detail.relatedLinks) {
+      const { error } = await supabase.from("task_links").insert({
+        task_detail_id: taskDetailId,
+        title: null,
+        url,
+      });
+
+      if (error) {
+        throw new Error(error.message);
+      }
+    }
+
+    const uniqueLabels = new Map<string, BoardTaskLabel>();
+    for (const label of detail.labels) {
+      uniqueLabels.set(label.name, label);
+    }
+
+    for (const label of uniqueLabels.values()) {
+      const { data: labelRow, error: labelError } = await supabase
+        .from("task_labels")
+        .upsert(
+          {
+            name: label.name,
+            color: label.color,
+          },
+          { onConflict: "name" },
+        )
+        .select("id")
+        .single();
+
+      if (labelError || !labelRow) {
+        throw new Error(labelError?.message ?? "Unable to save task label");
+      }
+
+      const { error: assignmentError } = await supabase
+        .from("task_label_assignments")
+        .insert({
+          task_detail_id: taskDetailId,
+          label_id: labelRow.id,
+        });
+
+      if (assignmentError) {
+        throw new Error(assignmentError.message);
+      }
+    }
+  }
+
+  async function saveTaskDetailMutation(
+    task: SelectedBoardTask,
+    field: string,
+    updater: (detail: BoardTaskDetail) => BoardTaskDetail,
+    successTitle = "Saved",
+  ) {
+    const statusKey = `${boardTaskKey(task)}-${field}`;
+    updateSaveStatus(statusKey, "saving");
+
+    const nextDetail = updateTaskDetail(task, updater);
+
+    try {
+      await persistTaskDetail(task, nextDetail);
+      markSaveSuccess(statusKey);
+      pushToast("success", successTitle);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unable to save task detail";
+      updateSaveStatus(statusKey, "error", message);
+      pushToast("error", "Save failed", message);
+    }
+  }
+
   function addSubtask(task: SelectedBoardTask, title: string) {
     const nextTitle = title.trim();
     if (!nextTitle) return;
 
-    updateTaskDetail(task, (detail) => ({
-      ...detail,
-      subtasks: [
-        ...detail.subtasks,
-        { id: createLocalId("subtask"), title: nextTitle, isComplete: false },
-      ],
-    }));
+    void saveTaskDetailMutation(
+      task,
+      "subtasks",
+      (detail) => ({
+        ...detail,
+        subtasks: [
+          ...detail.subtasks,
+          { id: createLocalId("subtask"), title: nextTitle, isComplete: false },
+        ],
+      }),
+      "Subtask added",
+    );
   }
 
   function toggleSubtask(task: SelectedBoardTask, subtaskId: string) {
-    updateTaskDetail(task, (detail) => ({
+    void saveTaskDetailMutation(task, "subtasks", (detail) => ({
       ...detail,
       subtasks: detail.subtasks.map((subtask) =>
         subtask.id === subtaskId
@@ -2423,7 +2980,7 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
   }
 
   function removeSubtask(task: SelectedBoardTask, subtaskId: string) {
-    updateTaskDetail(task, (detail) => ({
+    void saveTaskDetailMutation(task, "subtasks", (detail) => ({
       ...detail,
       subtasks: detail.subtasks.filter((subtask) => subtask.id !== subtaskId),
     }));
@@ -2433,29 +2990,30 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
     const nextBody = body.trim();
     if (!nextBody) return;
 
-    const statusKey = `${boardTaskKey(task)}-comment`;
-    updateSaveStatus(statusKey, "saving");
-    updateTaskDetail(task, (detail) => ({
-      ...detail,
-      comments: [
-        {
-          id: createLocalId("comment"),
-          author: fallbackAssignee,
-          body: nextBody,
-          createdAt: new Date().toISOString(),
-        },
-        ...detail.comments,
-      ],
-    }));
-    markSaveSuccess(statusKey);
-    pushToast("success", "Comment posted");
+    void saveTaskDetailMutation(
+      task,
+      "comment",
+      (detail) => ({
+        ...detail,
+        comments: [
+          {
+            id: createLocalId("comment"),
+            author: fallbackAssignee,
+            body: nextBody,
+            createdAt: new Date().toISOString(),
+          },
+          ...detail.comments,
+        ],
+      }),
+      "Comment posted",
+    );
   }
 
   function addRelatedLink(task: SelectedBoardTask, rawUrl: string) {
     const url = normalizeUrl(rawUrl);
     if (!url) return;
 
-    updateTaskDetail(task, (detail) => ({
+    void saveTaskDetailMutation(task, "links", (detail) => ({
       ...detail,
       relatedLinks: [...detail.relatedLinks, url],
     }));
@@ -2468,7 +3026,7 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
     const statusKey = `${boardTaskKey(task)}-attachment`;
     updateSaveStatus(statusKey, "saving");
     const parsed = new URL(url);
-    updateTaskDetail(task, (detail) => ({
+    const nextDetail = updateTaskDetail(task, (detail) => ({
       ...detail,
       attachments: [
         ...detail.attachments,
@@ -2479,8 +3037,18 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
         },
       ],
     }));
-    markSaveSuccess(statusKey);
-    pushToast("success", "Upload complete", "Attachment link added.");
+
+    void persistTaskDetail(task, nextDetail)
+      .then(() => {
+        markSaveSuccess(statusKey);
+        pushToast("success", "Upload complete", "Attachment link added.");
+      })
+      .catch((error) => {
+        const message =
+          error instanceof Error ? error.message : "Unable to save attachment";
+        updateSaveStatus(statusKey, "error", message);
+        pushToast("error", "Save failed", message);
+      });
   }
 
   async function saveTaskDetailField(
@@ -2488,26 +3056,10 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
     field: "description" | "notes" | "estimate",
     value: string,
   ) {
-    const statusKey = `${boardTaskKey(task)}-${field}`;
-    updateSaveStatus(statusKey, "saving");
-
-    try {
-      updateTaskDetail(task, (current) => ({
-        ...current,
-        [field]: value,
-      }));
-      markSaveSuccess(statusKey);
-      pushToast("success", "Saved");
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Unable to save field";
-      updateSaveStatus(
-        statusKey,
-        "error",
-        message,
-      );
-      pushToast("error", "Save failed", message);
-    }
+    await saveTaskDetailMutation(task, field, (current) => ({
+      ...current,
+      [field]: value,
+    }));
   }
 
   function closeTaskDetail() {
@@ -4234,12 +4786,51 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                   <h3 className="text-sm font-semibold text-white">
                     Description
                   </h3>
-                  <textarea
-                    key={`description-${selectedTaskKey}`}
+                  <div className="mt-2 flex flex-wrap gap-2 border-b border-app-border pb-2">
+                    <button
+                      type="button"
+                      onClick={() => applyDescriptionFormat("bold")}
+                      className="rounded border border-app-border px-2 py-1 text-xs text-white transition hover:border-brand hover:text-brand"
+                    >
+                      Bold
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => applyDescriptionFormat("italic")}
+                      className="rounded border border-app-border px-2 py-1 text-xs text-white transition hover:border-brand hover:text-brand"
+                    >
+                      Italic
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => applyDescriptionFormat("underline")}
+                      className="rounded border border-app-border px-2 py-1 text-xs text-white transition hover:border-brand hover:text-brand"
+                    >
+                      Underline
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => applyDescriptionFormat("insertUnorderedList")}
+                      className="rounded border border-app-border px-2 py-1 text-xs text-white transition hover:border-brand hover:text-brand"
+                    >
+                      Bullets
+                    </button>
+                  </div>
+                  <div
                     ref={modalDescriptionRef}
-                    defaultValue={detail.description}
-                    placeholder="Add context, acceptance criteria, @mentions, or background..."
-                    className="mt-2 min-h-28 w-full rounded border border-app-border bg-app-base px-3 py-2 text-sm text-white"
+                    contentEditable
+                    suppressContentEditableWarning
+                    role="textbox"
+                    aria-label="Task description editor"
+                    className="mt-3 min-h-28 w-full rounded border border-app-border bg-app-base px-3 py-2 text-sm text-white outline-none"
+                    onBlur={() => {
+                      const html = modalDescriptionRef.current?.innerHTML ?? "";
+                      void saveTaskDetailField(
+                        selectedBoardTask,
+                        "description",
+                        html === "<p><br></p>" ? "" : html,
+                      );
+                    }}
                   />
                   <div className="mt-2 flex justify-end">
                     <LoadingButton
@@ -4253,7 +4844,7 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                         void saveTaskDetailField(
                           selectedBoardTask,
                           "description",
-                          modalDescriptionRef.current?.value ??
+                          modalDescriptionRef.current?.innerHTML ??
                             detail.description,
                         )
                       }
@@ -4346,7 +4937,13 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                   <textarea
                     key={`notes-${selectedTaskKey}`}
                     ref={modalNotesRef}
-                    defaultValue={detail.notes}
+                    value={detail.notes}
+                    onChange={(event) =>
+                      updateTaskDetail(selectedBoardTask, (current) => ({
+                        ...current,
+                        notes: event.target.value,
+                      }))
+                    }
                     placeholder="Private notes, blockers, or next-step thinking..."
                     className="mt-2 min-h-24 w-full rounded border border-app-border bg-app-base px-3 py-2 text-sm text-white"
                   />
@@ -4461,12 +5058,16 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                       Priority
                       <select
                         value={detail.priority}
-                        onChange={(event) =>
-                          updateTaskDetail(selectedBoardTask, (current) => ({
-                            ...current,
-                            priority: event.target.value as BoardTaskPriority,
-                          }))
-                        }
+                        onChange={(event) => {
+                          void saveTaskDetailMutation(
+                            selectedBoardTask,
+                            "priority",
+                            (current) => ({
+                              ...current,
+                              priority: event.target.value as BoardTaskPriority,
+                            }),
+                          );
+                        }}
                         className="mt-1 w-full rounded border border-app-border bg-app-base px-2 py-2 text-sm text-white"
                       >
                         {(["Low", "Medium", "High", "Urgent"] as const).map(
@@ -4480,12 +5081,16 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                       Status
                       <select
                         value={detail.status}
-                        onChange={(event) =>
-                          updateTaskDetail(selectedBoardTask, (current) => ({
-                            ...current,
-                            status: event.target.value as BoardTaskStatus,
-                          }))
-                        }
+                        onChange={(event) => {
+                          void saveTaskDetailMutation(
+                            selectedBoardTask,
+                            "status",
+                            (current) => ({
+                              ...current,
+                              status: event.target.value as BoardTaskStatus,
+                            }),
+                          );
+                        }}
                         className="mt-1 w-full rounded border border-app-border bg-app-base px-2 py-2 text-sm text-white"
                       >
                         {(
@@ -4519,7 +5124,13 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                       <input
                         key={`estimate-${selectedTaskKey}`}
                         ref={modalEstimateRef}
-                        defaultValue={detail.estimate}
+                        value={detail.estimate}
+                        onChange={(event) =>
+                          updateTaskDetail(selectedBoardTask, (current) => ({
+                            ...current,
+                            estimate: event.target.value,
+                          }))
+                        }
                         placeholder="2h, 1d, 30m..."
                         className="mt-1 w-full rounded border border-app-border bg-app-base px-2 py-2 text-sm text-white"
                       />
@@ -4577,19 +5188,24 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                       onClick={() => {
                         const name = modalLabelDraft.trim();
                         if (!name) return;
-                        updateTaskDetail(selectedBoardTask, (current) => ({
-                          ...current,
-                          labels: [
-                            ...current.labels,
-                            {
-                              id: createLocalId("label"),
-                              name,
-                              color: name.toLowerCase().includes("block")
-                                ? "#e72027"
-                                : "#2563eb",
-                            },
-                          ],
-                        }));
+                        void saveTaskDetailMutation(
+                          selectedBoardTask,
+                          "labels",
+                          (current) => ({
+                            ...current,
+                            labels: [
+                              ...current.labels,
+                              {
+                                id: createLocalId("label"),
+                                name,
+                                color: name.toLowerCase().includes("block")
+                                  ? "#e72027"
+                                  : "#2563eb",
+                              },
+                            ],
+                          }),
+                          "Label added",
+                        );
                         setModalLabelDraft("");
                       }}
                       className="rounded border border-brand px-3 py-2 text-xs font-semibold text-brand hover:bg-brand hover:text-white"
