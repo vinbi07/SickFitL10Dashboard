@@ -1022,16 +1022,32 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
     let cancelled = false;
 
     async function hydrateTaskDetails() {
-      const [taskDetailsResult, subtasksResult, labelsResult, assignmentsResult, commentsResult, attachmentsResult, linksResult] =
-        await Promise.all([
-          supabase.from("task_details").select("*"),
-          supabase.from("task_subtasks").select("*"),
-          supabase.from("task_labels").select("*"),
-          supabase.from("task_label_assignments").select("*"),
-          supabase.from("task_comments").select("*").order("created_at", { ascending: true }),
-          supabase.from("task_attachments").select("*").order("created_at", { ascending: true }),
-          supabase.from("task_links").select("*").order("created_at", { ascending: true }),
-        ]);
+      const [
+        taskDetailsResult,
+        subtasksResult,
+        labelsResult,
+        assignmentsResult,
+        commentsResult,
+        attachmentsResult,
+        linksResult,
+      ] = await Promise.all([
+        supabase.from("task_details").select("*"),
+        supabase.from("task_subtasks").select("*"),
+        supabase.from("task_labels").select("*"),
+        supabase.from("task_label_assignments").select("*"),
+        supabase
+          .from("task_comments")
+          .select("*")
+          .order("created_at", { ascending: true }),
+        supabase
+          .from("task_attachments")
+          .select("*")
+          .order("created_at", { ascending: true }),
+        supabase
+          .from("task_links")
+          .select("*")
+          .order("created_at", { ascending: true }),
+      ]);
 
       if (cancelled) {
         return;
@@ -1068,7 +1084,8 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
 
       const subtasksByDetailId = new Map<string, BoardSubtask[]>();
       for (const subtask of subtasksResult.data ?? []) {
-        const nextSubtasks = subtasksByDetailId.get(subtask.task_detail_id) ?? [];
+        const nextSubtasks =
+          subtasksByDetailId.get(subtask.task_detail_id) ?? [];
         nextSubtasks.push({
           id: subtask.id,
           title: subtask.title,
@@ -1079,7 +1096,8 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
 
       const commentsByDetailId = new Map<string, BoardComment[]>();
       for (const comment of commentsResult.data ?? []) {
-        const nextComments = commentsByDetailId.get(comment.task_detail_id) ?? [];
+        const nextComments =
+          commentsByDetailId.get(comment.task_detail_id) ?? [];
         nextComments.push({
           id: comment.id,
           author: comment.author,
@@ -1091,7 +1109,8 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
 
       const attachmentsByDetailId = new Map<string, BoardAttachment[]>();
       for (const attachment of attachmentsResult.data ?? []) {
-        const nextAttachments = attachmentsByDetailId.get(attachment.task_detail_id) ?? [];
+        const nextAttachments =
+          attachmentsByDetailId.get(attachment.task_detail_id) ?? [];
         nextAttachments.push({
           id: attachment.id,
           name: attachment.name,
@@ -1108,8 +1127,11 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
       }
 
       const nextTaskDetailsByKey: Record<string, BoardTaskDetail> = {};
-      for (const taskDetail of (taskDetailsResult.data ?? []) as TaskDetailRow[]) {
-        nextTaskDetailsByKey[`${taskDetail.source_table}:${taskDetail.source_id}`] = {
+      for (const taskDetail of (taskDetailsResult.data ??
+        []) as TaskDetailRow[]) {
+        nextTaskDetailsByKey[
+          `${taskDetail.source_table}:${taskDetail.source_id}`
+        ] = {
           description: taskDetail.description,
           notes: taskDetail.notes,
           priority: taskDetail.priority,
@@ -1146,24 +1168,40 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
     async function loadSelectedTaskDetail() {
       setTaskModalLoading(true);
 
-      const [taskDetailsResult, subtasksResult, labelsResult, assignmentsResult, commentsResult, attachmentsResult, linksResult] =
-        await Promise.all([
-          supabase
-            .from("task_details")
-            .select("*")
-            .eq("source_table", taskSourceTable(activeTask))
-            .eq("source_id", activeTask.id)
-            .maybeSingle(),
-          supabase
-            .from("task_subtasks")
-            .select("*")
-            .order("sort_order", { ascending: true }),
-          supabase.from("task_labels").select("*"),
-          supabase.from("task_label_assignments").select("*"),
-          supabase.from("task_comments").select("*").order("created_at", { ascending: true }),
-          supabase.from("task_attachments").select("*").order("created_at", { ascending: true }),
-          supabase.from("task_links").select("*").order("created_at", { ascending: true }),
-        ]);
+      const [
+        taskDetailsResult,
+        subtasksResult,
+        labelsResult,
+        assignmentsResult,
+        commentsResult,
+        attachmentsResult,
+        linksResult,
+      ] = await Promise.all([
+        supabase
+          .from("task_details")
+          .select("*")
+          .eq("source_table", taskSourceTable(activeTask))
+          .eq("source_id", activeTask.id)
+          .maybeSingle(),
+        supabase
+          .from("task_subtasks")
+          .select("*")
+          .order("sort_order", { ascending: true }),
+        supabase.from("task_labels").select("*"),
+        supabase.from("task_label_assignments").select("*"),
+        supabase
+          .from("task_comments")
+          .select("*")
+          .order("created_at", { ascending: true }),
+        supabase
+          .from("task_attachments")
+          .select("*")
+          .order("created_at", { ascending: true }),
+        supabase
+          .from("task_links")
+          .select("*")
+          .order("created_at", { ascending: true }),
+      ]);
 
       if (cancelled) {
         return;
@@ -1198,14 +1236,16 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
         const label = labelById.get(assignment.label_id);
         if (!label) continue;
 
-        const nextLabels = labelsByDetailId.get(assignment.task_detail_id) ?? [];
+        const nextLabels =
+          labelsByDetailId.get(assignment.task_detail_id) ?? [];
         nextLabels.push({ id: label.id, name: label.name, color: label.color });
         labelsByDetailId.set(assignment.task_detail_id, nextLabels);
       }
 
       const subtasksByDetailId = new Map<string, BoardSubtask[]>();
       for (const subtask of (subtasksResult.data ?? []) as TaskSubtaskRow[]) {
-        const nextSubtasks = subtasksByDetailId.get(subtask.task_detail_id) ?? [];
+        const nextSubtasks =
+          subtasksByDetailId.get(subtask.task_detail_id) ?? [];
         nextSubtasks.push({
           id: subtask.id,
           title: subtask.title,
@@ -1216,7 +1256,8 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
 
       const commentsByDetailId = new Map<string, BoardComment[]>();
       for (const comment of (commentsResult.data ?? []) as TaskCommentRow[]) {
-        const nextComments = commentsByDetailId.get(comment.task_detail_id) ?? [];
+        const nextComments =
+          commentsByDetailId.get(comment.task_detail_id) ?? [];
         nextComments.push({
           id: comment.id,
           author: comment.author,
@@ -1227,8 +1268,10 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
       }
 
       const attachmentsByDetailId = new Map<string, BoardAttachment[]>();
-      for (const attachment of (attachmentsResult.data ?? []) as TaskAttachmentRow[]) {
-        const nextAttachments = attachmentsByDetailId.get(attachment.task_detail_id) ?? [];
+      for (const attachment of (attachmentsResult.data ??
+        []) as TaskAttachmentRow[]) {
+        const nextAttachments =
+          attachmentsByDetailId.get(attachment.task_detail_id) ?? [];
         nextAttachments.push({
           id: attachment.id,
           name: attachment.name,
@@ -2060,20 +2103,19 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
     setToasts((current) => current.filter((toast) => toast.id !== id));
   }
 
-  function pushToast(
-    tone: ToastTone,
-    title: string,
-    description?: string,
-  ) {
+  function pushToast(tone: ToastTone, title: string, description?: string) {
     const id = createLocalId("toast");
     setToasts((current) => [
       { id, tone, title, description },
       ...current.slice(0, 3),
     ]);
 
-    toastTimeoutRef.current[id] = window.setTimeout(() => {
-      dismissToast(id);
-    }, tone === "error" ? 5600 : 2800);
+    toastTimeoutRef.current[id] = window.setTimeout(
+      () => {
+        dismissToast(id);
+      },
+      tone === "error" ? 5600 : 2800,
+    );
   }
 
   function statusTitle(statusKey: string) {
@@ -2095,13 +2137,8 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
     const { error } = await mutation;
 
     if (error) {
-      const message =
-        error.message?.trim() || "Supabase rejected the update.";
-      updateSaveStatus(
-        statusKey,
-        "error",
-        message,
-      );
+      const message = error.message?.trim() || "Supabase rejected the update.";
+      updateSaveStatus(statusKey, "error", message);
       pushToast("error", "Request failed", message);
       return false;
     }
@@ -2744,7 +2781,9 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
     setSelectedBoardTask({ type, id });
   }
 
-  function applyDescriptionFormat(command: "bold" | "italic" | "underline" | "insertUnorderedList") {
+  function applyDescriptionFormat(
+    command: "bold" | "italic" | "underline" | "insertUnorderedList",
+  ) {
     document.execCommand(command, false);
     modalDescriptionRef.current?.focus();
   }
@@ -2830,11 +2869,23 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
     const taskDetailId = taskDetailRow.id;
 
     const deleteResults = await Promise.all([
-      supabase.from("task_subtasks").delete().eq("task_detail_id", taskDetailId),
-      supabase.from("task_comments").delete().eq("task_detail_id", taskDetailId),
-      supabase.from("task_attachments").delete().eq("task_detail_id", taskDetailId),
+      supabase
+        .from("task_subtasks")
+        .delete()
+        .eq("task_detail_id", taskDetailId),
+      supabase
+        .from("task_comments")
+        .delete()
+        .eq("task_detail_id", taskDetailId),
+      supabase
+        .from("task_attachments")
+        .delete()
+        .eq("task_detail_id", taskDetailId),
       supabase.from("task_links").delete().eq("task_detail_id", taskDetailId),
-      supabase.from("task_label_assignments").delete().eq("task_detail_id", taskDetailId),
+      supabase
+        .from("task_label_assignments")
+        .delete()
+        .eq("task_detail_id", taskDetailId),
     ]);
 
     const deleteError = deleteResults.find((result) => result.error)?.error;
@@ -4065,574 +4116,596 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
             transition={{ duration: 0.18 }}
             className="mt-4 grid gap-3 overflow-x-auto pb-2 [grid-template-columns:repeat(auto-fit,minmax(340px,1fr))]"
           >
-          {activeTasksByOwner.map(({ owner, priority, todos }) => {
-            if (
-              taskBoardOwnerFilter !== "All" &&
-              taskBoardOwnerFilter !== owner
-            ) {
-              return null;
-            }
+            {activeTasksByOwner.map(({ owner, priority, todos }) => {
+              if (
+                taskBoardOwnerFilter !== "All" &&
+                taskBoardOwnerFilter !== owner
+              ) {
+                return null;
+              }
 
-            const matchesTask = (
-              task: SelectedBoardTask,
-              title: string,
-              taskOwner: string,
-            ) => {
-              const detail = getTaskDetail(task);
-              const query = deferredTaskBoardSearch.trim().toLowerCase();
-              const matchesQuery =
-                !query ||
-                [
-                  title,
-                  taskOwner,
-                  detail.description,
-                  detail.notes,
-                  detail.priority,
-                  detail.status,
-                  ...detail.labels.map((label) => label.name),
-                ]
-                  .join(" ")
-                  .toLowerCase()
-                  .includes(query);
-              const matchesPriority =
-                taskBoardPriorityFilter === "All" ||
-                detail.priority === taskBoardPriorityFilter;
-              const matchesStatus =
-                taskBoardStatusFilter === "All" ||
-                detail.status === taskBoardStatusFilter;
+              const matchesTask = (
+                task: SelectedBoardTask,
+                title: string,
+                taskOwner: string,
+              ) => {
+                const detail = getTaskDetail(task);
+                const query = deferredTaskBoardSearch.trim().toLowerCase();
+                const matchesQuery =
+                  !query ||
+                  [
+                    title,
+                    taskOwner,
+                    detail.description,
+                    detail.notes,
+                    detail.priority,
+                    detail.status,
+                    ...detail.labels.map((label) => label.name),
+                  ]
+                    .join(" ")
+                    .toLowerCase()
+                    .includes(query);
+                const matchesPriority =
+                  taskBoardPriorityFilter === "All" ||
+                  detail.priority === taskBoardPriorityFilter;
+                const matchesStatus =
+                  taskBoardStatusFilter === "All" ||
+                  detail.status === taskBoardStatusFilter;
 
-              return matchesQuery && matchesPriority && matchesStatus;
-            };
-            const filteredPriority = priority.filter((rock) =>
-              matchesTask({ type: "rock", id: rock.id }, rock.title, owner),
-            );
-            const filteredTodos = todos.filter((todo) =>
-              matchesTask(
-                { type: "todo", id: todo.id },
-                todo.task_description,
-                owner,
-              ),
-            );
-            const totalTasks = filteredPriority.length + filteredTodos.length;
-            const ownerKey = toStatusKey(owner);
-            const draft = taskBoardDrafts[owner] ?? {
-              priorityTitle: "",
-              priorityDueDate: "",
-              backlogTask: "",
-              backlogDueDate: "",
-            };
+                return matchesQuery && matchesPriority && matchesStatus;
+              };
+              const filteredPriority = priority.filter((rock) =>
+                matchesTask({ type: "rock", id: rock.id }, rock.title, owner),
+              );
+              const filteredTodos = todos.filter((todo) =>
+                matchesTask(
+                  { type: "todo", id: todo.id },
+                  todo.task_description,
+                  owner,
+                ),
+              );
+              const totalTasks = filteredPriority.length + filteredTodos.length;
+              const ownerKey = toStatusKey(owner);
+              const draft = taskBoardDrafts[owner] ?? {
+                priorityTitle: "",
+                priorityDueDate: "",
+                backlogTask: "",
+                backlogDueDate: "",
+              };
 
-            return (
-              <article
-                key={owner}
-                onDragOver={(event) => event.preventDefault()}
-                onDrop={() => void dropTaskToOwner(owner)}
-                className="relative min-w-[320px] rounded-lg border border-app-border bg-black p-3"
-                style={taskAccentStyle(owner)}
-              >
-                {activeDropKey === `owner-${owner}` ? (
-                  <SectionLoadingOverlay label="Moving task" />
-                ) : null}
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h3 className="font-heading text-lg text-white">{owner}</h3>
-                    <p className="text-xs text-app-muted">
-                      {ownerRoleByName.get(owner) ?? "Member"}
-                    </p>
-                  </div>
-                  <span className="rounded-full border border-app-border px-2 py-1 text-[11px] uppercase tracking-[0.12em] text-app-muted">
-                    {totalTasks} task{totalTasks === 1 ? "" : "s"}
-                  </span>
-                </div>
-
-                <div className="mt-3 space-y-3">
-                  <div
-                    onDragOver={(event) => event.preventDefault()}
-                    onDrop={(event) => {
-                      event.stopPropagation();
-                      void dropIntoPriority(owner);
-                    }}
-                    className="relative space-y-2 rounded-lg border border-dashed border-app-border bg-app-base/50 p-2"
-                  >
-                    {activeDropKey === `priority-${owner}` ? (
-                      <SectionLoadingOverlay label="Converting to priority" />
-                    ) : null}
-                    <div className="flex items-center justify-between">
-                      <p className="text-xs uppercase tracking-[0.12em] text-app-muted">
-                        Priority
+              return (
+                <article
+                  key={owner}
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={() => void dropTaskToOwner(owner)}
+                  className="relative min-w-[320px] rounded-lg border border-app-border bg-black p-3"
+                  style={taskAccentStyle(owner)}
+                >
+                  {activeDropKey === `owner-${owner}` ? (
+                    <SectionLoadingOverlay label="Moving task" />
+                  ) : null}
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h3 className="font-heading text-lg text-white">
+                        {owner}
+                      </h3>
+                      <p className="text-xs text-app-muted">
+                        {ownerRoleByName.get(owner) ?? "Member"}
                       </p>
-                      <span className="text-[11px] text-app-muted">
-                        {filteredPriority.length}
-                      </span>
                     </div>
-                    {filteredPriority.length > 0 ? (
-                      filteredPriority.map((rock) => {
-                        const task = { type: "rock", id: rock.id } as const;
-                        const detail = getTaskDetail(task);
-                        const completedSubtasks = detail.subtasks.filter(
-                          (subtask) => subtask.isComplete,
-                        ).length;
-                        const progress =
-                          detail.subtasks.length === 0
-                            ? 0
-                            : Math.round(
-                                (completedSubtasks / detail.subtasks.length) *
-                                  100,
-                              );
+                    <span className="rounded-full border border-app-border px-2 py-1 text-[11px] uppercase tracking-[0.12em] text-app-muted">
+                      {totalTasks} task{totalTasks === 1 ? "" : "s"}
+                    </span>
+                  </div>
 
-                        return (
-                          <div
-                            key={rock.id}
-                            role="button"
-                            tabIndex={0}
-                            aria-label={`Open task ${rock.title}`}
-                            onClick={() => openBoardTask("rock", rock.id)}
-                            onKeyDown={(event) =>
-                              handleTaskCardKeyDown(event, "rock", rock.id)
-                            }
-                            draggable
-                            onDragStart={() =>
-                              setDraggingTask({ type: "rock", id: rock.id })
-                            }
-                            onDragEnd={() => setDraggingTask(null)}
-                            className="group cursor-pointer rounded-lg border border-app-border bg-app-panel p-3 shadow-sm transition hover:-translate-y-0.5 hover:border-brand/70 hover:shadow-xl"
-                          >
-                            <div className="mb-2 flex flex-wrap gap-1">
-                              {detail.labels.slice(0, 3).map((label) => (
-                                <span
-                                  key={label.id}
-                                  className="h-2 w-10 rounded-full"
-                                  style={{ backgroundColor: label.color }}
-                                  title={label.name}
-                                />
-                              ))}
-                            </div>
-                            <div
-                              className="flex items-start gap-2"
-                              onClick={(event) => event.stopPropagation()}
-                            >
-                              <span className="select-none pt-1 text-lg leading-none text-app-muted group-hover:text-brand">
-                                ::
-                              </span>
-                              <input
-                                defaultValue={rock.title}
-                                onBlur={(event) =>
-                                  updateRockTitle(rock.id, event.target.value)
-                                }
-                                className="min-w-0 flex-1 rounded border border-app-border bg-app-base px-2 py-1 text-sm font-medium text-white"
-                              />
-                            </div>
-                            <div
-                              className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-app-muted"
-                              onClick={(event) => event.stopPropagation()}
-                            >
-                              <span
-                                className={`rounded-full border px-2 py-1 font-semibold ${priorityClassName(detail.priority)}`}
-                              >
-                                {detail.priority}
-                              </span>
-                              <span
-                                className={`rounded-full border px-2 py-1 font-semibold ${statusClassName(detail.status)}`}
-                              >
-                                {detail.status}
-                              </span>
-                              <select
-                                value={rock.owner}
-                                onChange={(event) =>
-                                  updateRockOwner(rock.id, event.target.value)
-                                }
-                                className="rounded border border-app-border bg-app-base px-2 py-1 text-xs text-white"
-                              >
-                                {ownerOptionsFor(rock.owner).map(
-                                  (ownerOption) => (
-                                    <option key={ownerOption}>
-                                      {ownerOption}
-                                    </option>
-                                  ),
-                                )}
-                              </select>
-                              <input
-                                type="date"
-                                value={rock.due_date ?? ""}
-                                onChange={(event) =>
-                                  updateRockDueDate(rock.id, event.target.value)
-                                }
-                                className="rounded border border-app-border bg-app-base px-2 py-1 text-xs text-white"
-                              />
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  toggleRockStatus(rock.id, rock.status)
-                                }
-                                className={`rounded px-2 py-1 text-[11px] font-semibold ${
-                                  rock.status === "On Track"
-                                    ? "bg-emerald-700 text-white"
-                                    : "bg-brand text-white"
-                                }`}
-                              >
-                                {rock.status}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => void moveRockToTodo(rock.id)}
-                                className="rounded border border-app-border px-2 py-1 transition hover:text-white"
-                              >
-                                Move to Backlog
-                              </button>
-                              {saveStatusBadge(`rock-${rock.id}`)}
-                              <button
-                                type="button"
-                                onClick={() => archiveRock(rock.id)}
-                                className="rounded border border-app-border px-2 py-1 transition hover:text-yellow-500"
-                              >
-                                Archive
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => deleteRock(rock.id)}
-                                className="rounded border border-app-border px-2 py-1 transition hover:text-brand"
-                              >
-                                Delete
-                              </button>
-                            </div>
-                            <div className="mt-3 flex items-center justify-end gap-2">
-                              <div className="flex items-center gap-2 text-[11px] text-app-muted">
-                                {detail.comments.length > 0 ? (
-                                  <span>{detail.comments.length} comments</span>
-                                ) : null}
-                                {detail.attachments.length > 0 ? (
-                                  <span>{detail.attachments.length} files</span>
-                                ) : null}
-                              </div>
-                            </div>
-                            {detail.subtasks.length > 0 ? (
-                              <div className="mt-3">
-                                <div className="mb-1 flex justify-between text-[11px] text-app-muted">
-                                  <span>Checklist</span>
-                                  <span>
-                                    {completedSubtasks}/{detail.subtasks.length}
-                                  </span>
-                                </div>
-                                <div className="h-1.5 overflow-hidden rounded-full bg-app-base">
-                                  <div
-                                    className="h-full rounded-full bg-brand transition-all"
-                                    style={{ width: `${progress}%` }}
-                                  />
-                                </div>
-                              </div>
-                            ) : null}
-                          </div>
-                        );
-                      })
-                    ) : (
-                      <p className="rounded border border-dashed border-app-border bg-app-base px-3 py-3 text-sm text-app-muted">
-                        No priority items.
-                      </p>
-                    )}
-
-                    <div className="grid gap-2 rounded-lg border border-app-border bg-app-panel p-2">
-                      <input
-                        value={draft.priorityTitle}
-                        onChange={(event) =>
-                          setTaskBoardDrafts((previous) => ({
-                            ...previous,
-                            [owner]: {
-                              ...draft,
-                              priorityTitle: event.target.value,
-                            },
-                          }))
-                        }
-                        placeholder={`Add priority for ${owner}`}
-                        className="rounded border border-app-border bg-app-base px-2 py-1 text-sm text-white"
-                      />
-                      <div className="flex gap-2">
-                        <input
-                          type="date"
-                          value={draft.priorityDueDate}
-                          onChange={(event) =>
-                            setTaskBoardDrafts((previous) => ({
-                              ...previous,
-                              [owner]: {
-                                ...draft,
-                                priorityDueDate: event.target.value,
-                              },
-                            }))
-                          }
-                          className="min-w-0 flex-1 rounded border border-app-border bg-app-base px-2 py-1 text-xs text-white"
-                        />
-                        <LoadingButton
-                          type="button"
-                          isLoading={
-                            getSaveStatus(`board-priority-add-${ownerKey}`) ===
-                            "saving"
-                          }
-                          loadingLabel="Adding"
-                          onClick={() => void addPriorityTaskForOwner(owner)}
-                          className="rounded border border-brand px-3 py-1 text-xs font-semibold text-brand hover:bg-brand hover:text-white"
-                        >
-                          Add
-                        </LoadingButton>
-                        {saveStatusBadge(`board-priority-add-${ownerKey}`)}
+                  <div className="mt-3 space-y-3">
+                    <div
+                      onDragOver={(event) => event.preventDefault()}
+                      onDrop={(event) => {
+                        event.stopPropagation();
+                        void dropIntoPriority(owner);
+                      }}
+                      className="relative space-y-2 rounded-lg border border-dashed border-app-border bg-app-base/50 p-2"
+                    >
+                      {activeDropKey === `priority-${owner}` ? (
+                        <SectionLoadingOverlay label="Converting to priority" />
+                      ) : null}
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs uppercase tracking-[0.12em] text-app-muted">
+                          Priority
+                        </p>
+                        <span className="text-[11px] text-app-muted">
+                          {filteredPriority.length}
+                        </span>
                       </div>
-                    </div>
-                  </div>
+                      {filteredPriority.length > 0 ? (
+                        filteredPriority.map((rock) => {
+                          const task = { type: "rock", id: rock.id } as const;
+                          const detail = getTaskDetail(task);
+                          const completedSubtasks = detail.subtasks.filter(
+                            (subtask) => subtask.isComplete,
+                          ).length;
+                          const progress =
+                            detail.subtasks.length === 0
+                              ? 0
+                              : Math.round(
+                                  (completedSubtasks / detail.subtasks.length) *
+                                    100,
+                                );
 
-                  <div
-                    onDragOver={(event) => event.preventDefault()}
-                    onDrop={(event) => {
-                      event.stopPropagation();
-                      void dropIntoBacklog(owner);
-                    }}
-                    className="relative space-y-2 rounded-lg border border-dashed border-app-border bg-app-base/50 p-2"
-                  >
-                    {activeDropKey === `backlog-${owner}` ? (
-                      <SectionLoadingOverlay label="Moving to backlog" />
-                    ) : null}
-                    <div className="flex items-center justify-between">
-                      <p className="text-xs uppercase tracking-[0.12em] text-app-muted">
-                        Backlog
-                      </p>
-                      <span className="text-[11px] text-app-muted">
-                        {filteredTodos.length}
-                      </span>
-                    </div>
-                    {filteredTodos.length > 0 ? (
-                      filteredTodos.map((todo) => {
-                        const todoStatus = todoStatusFor(todo);
-                        const task = { type: "todo", id: todo.id } as const;
-                        const detail = getTaskDetail(task);
-                        const completedSubtasks = detail.subtasks.filter(
-                          (subtask) => subtask.isComplete,
-                        ).length;
-                        const progress =
-                          detail.subtasks.length === 0
-                            ? 0
-                            : Math.round(
-                                (completedSubtasks / detail.subtasks.length) *
-                                  100,
-                              );
-
-                        return (
-                          <div
-                            key={todo.id}
-                            role="button"
-                            tabIndex={0}
-                            aria-label={`Open task ${todo.task_description}`}
-                            onClick={() => openBoardTask("todo", todo.id)}
-                            onKeyDown={(event) =>
-                              handleTaskCardKeyDown(event, "todo", todo.id)
-                            }
-                            draggable
-                            onDragStart={() =>
-                              setDraggingTask({ type: "todo", id: todo.id })
-                            }
-                            onDragEnd={() => setDraggingTask(null)}
-                            className="group cursor-pointer rounded-lg border border-app-border bg-app-panel p-3 shadow-sm transition hover:-translate-y-0.5 hover:border-brand/70 hover:shadow-xl"
-                          >
-                            <div className="mb-2 flex flex-wrap gap-1">
-                              {detail.labels.slice(0, 3).map((label) => (
-                                <span
-                                  key={label.id}
-                                  className="h-2 w-10 rounded-full"
-                                  style={{ backgroundColor: label.color }}
-                                  title={label.name}
-                                />
-                              ))}
-                            </div>
+                          return (
                             <div
-                              className="flex items-start gap-2"
-                              onClick={(event) => event.stopPropagation()}
+                              key={rock.id}
+                              role="button"
+                              tabIndex={0}
+                              aria-label={`Open task ${rock.title}`}
+                              onClick={() => openBoardTask("rock", rock.id)}
+                              onKeyDown={(event) =>
+                                handleTaskCardKeyDown(event, "rock", rock.id)
+                              }
+                              draggable
+                              onDragStart={() =>
+                                setDraggingTask({ type: "rock", id: rock.id })
+                              }
+                              onDragEnd={() => setDraggingTask(null)}
+                              className="group cursor-pointer rounded-lg border border-app-border bg-app-panel p-3 shadow-sm transition hover:-translate-y-0.5 hover:border-brand/70 hover:shadow-xl"
                             >
-                              <span className="select-none pt-1 text-lg leading-none text-app-muted group-hover:text-brand">
-                                ::
-                              </span>
-                              <input
-                                defaultValue={todo.task_description}
-                                onBlur={(event) =>
-                                  updateTodoTask(todo.id, event.target.value)
-                                }
-                                className={`min-w-0 flex-1 rounded border border-app-border bg-app-base px-2 py-1 text-sm font-medium ${
-                                  todo.is_complete
-                                    ? "text-app-muted line-through"
-                                    : "text-white"
-                                }`}
-                              />
-                            </div>
-                            <div
-                              className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-app-muted"
-                              onClick={(event) => event.stopPropagation()}
-                            >
-                              <span
-                                className={`rounded-full border px-2 py-1 font-semibold ${priorityClassName(detail.priority)}`}
+                              <div className="mb-2 flex flex-wrap gap-1">
+                                {detail.labels.slice(0, 3).map((label) => (
+                                  <span
+                                    key={label.id}
+                                    className="h-2 w-10 rounded-full"
+                                    style={{ backgroundColor: label.color }}
+                                    title={label.name}
+                                  />
+                                ))}
+                              </div>
+                              <div
+                                className="flex items-start gap-2"
+                                onClick={(event) => event.stopPropagation()}
                               >
-                                {detail.priority}
-                              </span>
-                              <span
-                                className={`rounded-full border px-2 py-1 font-semibold ${statusClassName(detail.status)}`}
-                              >
-                                {detail.status}
-                              </span>
-                              <select
-                                value={todo.owner}
-                                onChange={(event) =>
-                                  updateTodoOwner(todo.id, event.target.value)
-                                }
-                                className="rounded border border-app-border bg-app-base px-2 py-1 text-xs text-white"
-                              >
-                                {ownerOptionsFor(todo.owner).map(
-                                  (ownerOption) => (
-                                    <option key={ownerOption}>
-                                      {ownerOption}
-                                    </option>
-                                  ),
-                                )}
-                              </select>
-                              <input
-                                type="date"
-                                value={todo.due_date ?? ""}
-                                onChange={(event) =>
-                                  updateTodoDueDate(todo.id, event.target.value)
-                                }
-                                className="rounded border border-app-border bg-app-base px-2 py-1 text-xs text-white"
-                              />
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  todo.due_date
-                                    ? undefined
-                                    : void updateTodoStatus(todo.id, todoStatus)
-                                }
-                                disabled={Boolean(todo.due_date)}
-                                className={`rounded px-2 py-1 text-[11px] font-semibold ${
-                                  todoStatus === "On Track"
-                                    ? "bg-emerald-700 text-white"
-                                    : "bg-brand text-white"
-                                } ${todo.due_date ? "cursor-default opacity-80" : ""}`}
-                              >
-                                {todoStatus}
-                              </button>
-                              <label className="flex items-center gap-1 rounded border border-app-border px-2 py-1">
+                                <span className="select-none pt-1 text-lg leading-none text-app-muted group-hover:text-brand">
+                                  ::
+                                </span>
                                 <input
-                                  type="checkbox"
-                                  checked={todo.is_complete}
-                                  onChange={() =>
-                                    toggleTodoComplete(
-                                      todo.id,
-                                      todo.is_complete,
+                                  defaultValue={rock.title}
+                                  onBlur={(event) =>
+                                    updateRockTitle(rock.id, event.target.value)
+                                  }
+                                  className="min-w-0 flex-1 rounded border border-app-border bg-app-base px-2 py-1 text-sm font-medium text-white"
+                                />
+                              </div>
+                              <div
+                                className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-app-muted"
+                                onClick={(event) => event.stopPropagation()}
+                              >
+                                <span
+                                  className={`rounded-full border px-2 py-1 font-semibold ${priorityClassName(detail.priority)}`}
+                                >
+                                  {detail.priority}
+                                </span>
+                                <span
+                                  className={`rounded-full border px-2 py-1 font-semibold ${statusClassName(detail.status)}`}
+                                >
+                                  {detail.status}
+                                </span>
+                                <select
+                                  value={rock.owner}
+                                  onChange={(event) =>
+                                    updateRockOwner(rock.id, event.target.value)
+                                  }
+                                  className="rounded border border-app-border bg-app-base px-2 py-1 text-xs text-white"
+                                >
+                                  {ownerOptionsFor(rock.owner).map(
+                                    (ownerOption) => (
+                                      <option key={ownerOption}>
+                                        {ownerOption}
+                                      </option>
+                                    ),
+                                  )}
+                                </select>
+                                <input
+                                  type="date"
+                                  value={rock.due_date ?? ""}
+                                  onChange={(event) =>
+                                    updateRockDueDate(
+                                      rock.id,
+                                      event.target.value,
                                     )
                                   }
-                                  className="h-3.5 w-3.5 accent-brand"
+                                  className="rounded border border-app-border bg-app-base px-2 py-1 text-xs text-white"
                                 />
-                                Done
-                              </label>
-                              <button
-                                type="button"
-                                onClick={() => void moveTodoToRock(todo.id)}
-                                className="rounded border border-app-border px-2 py-1 transition hover:text-white"
-                              >
-                                Move to Priority
-                              </button>
-                              {saveStatusBadge(`todo-${todo.id}`)}
-                              <button
-                                type="button"
-                                onClick={() => archiveTodo(todo.id)}
-                                className="rounded border border-app-border px-2 py-1 transition hover:text-yellow-500"
-                              >
-                                Archive
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => deleteTodo(todo.id)}
-                                className="rounded border border-app-border px-2 py-1 transition hover:text-brand"
-                              >
-                                Delete
-                              </button>
-                            </div>
-                            <div className="mt-3 flex items-center justify-end gap-2">
-                              <div className="flex items-center gap-2 text-[11px] text-app-muted">
-                                {detail.comments.length > 0 ? (
-                                  <span>{detail.comments.length} comments</span>
-                                ) : null}
-                                {detail.attachments.length > 0 ? (
-                                  <span>{detail.attachments.length} files</span>
-                                ) : null}
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    toggleRockStatus(rock.id, rock.status)
+                                  }
+                                  className={`rounded px-2 py-1 text-[11px] font-semibold ${
+                                    rock.status === "On Track"
+                                      ? "bg-emerald-700 text-white"
+                                      : "bg-brand text-white"
+                                  }`}
+                                >
+                                  {rock.status}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => void moveRockToTodo(rock.id)}
+                                  className="rounded border border-app-border px-2 py-1 transition hover:text-white"
+                                >
+                                  Move to Backlog
+                                </button>
+                                {saveStatusBadge(`rock-${rock.id}`)}
+                                <button
+                                  type="button"
+                                  onClick={() => archiveRock(rock.id)}
+                                  className="rounded border border-app-border px-2 py-1 transition hover:text-yellow-500"
+                                >
+                                  Archive
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => deleteRock(rock.id)}
+                                  className="rounded border border-app-border px-2 py-1 transition hover:text-brand"
+                                >
+                                  Delete
+                                </button>
                               </div>
-                            </div>
-                            {detail.subtasks.length > 0 ? (
-                              <div className="mt-3">
-                                <div className="mb-1 flex justify-between text-[11px] text-app-muted">
-                                  <span>Checklist</span>
-                                  <span>
-                                    {completedSubtasks}/{detail.subtasks.length}
-                                  </span>
-                                </div>
-                                <div className="h-1.5 overflow-hidden rounded-full bg-app-base">
-                                  <div
-                                    className="h-full rounded-full bg-brand transition-all"
-                                    style={{ width: `${progress}%` }}
-                                  />
+                              <div className="mt-3 flex items-center justify-end gap-2">
+                                <div className="flex items-center gap-2 text-[11px] text-app-muted">
+                                  {detail.comments.length > 0 ? (
+                                    <span>
+                                      {detail.comments.length} comments
+                                    </span>
+                                  ) : null}
+                                  {detail.attachments.length > 0 ? (
+                                    <span>
+                                      {detail.attachments.length} files
+                                    </span>
+                                  ) : null}
                                 </div>
                               </div>
-                            ) : null}
-                          </div>
-                        );
-                      })
-                    ) : (
-                      <p className="rounded border border-dashed border-app-border bg-app-base px-3 py-3 text-sm text-app-muted">
-                        No backlog items.
-                      </p>
-                    )}
+                              {detail.subtasks.length > 0 ? (
+                                <div className="mt-3">
+                                  <div className="mb-1 flex justify-between text-[11px] text-app-muted">
+                                    <span>Checklist</span>
+                                    <span>
+                                      {completedSubtasks}/
+                                      {detail.subtasks.length}
+                                    </span>
+                                  </div>
+                                  <div className="h-1.5 overflow-hidden rounded-full bg-app-base">
+                                    <div
+                                      className="h-full rounded-full bg-brand transition-all"
+                                      style={{ width: `${progress}%` }}
+                                    />
+                                  </div>
+                                </div>
+                              ) : null}
+                            </div>
+                          );
+                        })
+                      ) : (
+                        <p className="rounded border border-dashed border-app-border bg-app-base px-3 py-3 text-sm text-app-muted">
+                          No priority items.
+                        </p>
+                      )}
 
-                    <div className="grid gap-2 rounded-lg border border-app-border bg-app-panel p-2">
-                      <input
-                        value={draft.backlogTask}
-                        onChange={(event) =>
-                          setTaskBoardDrafts((previous) => ({
-                            ...previous,
-                            [owner]: {
-                              ...draft,
-                              backlogTask: event.target.value,
-                            },
-                          }))
-                        }
-                        placeholder={`Add backlog for ${owner}`}
-                        className="rounded border border-app-border bg-app-base px-2 py-1 text-sm text-white"
-                      />
-                      <div className="flex gap-2">
+                      <div className="grid gap-2 rounded-lg border border-app-border bg-app-panel p-2">
                         <input
-                          type="date"
-                          value={draft.backlogDueDate}
+                          value={draft.priorityTitle}
                           onChange={(event) =>
                             setTaskBoardDrafts((previous) => ({
                               ...previous,
                               [owner]: {
                                 ...draft,
-                                backlogDueDate: event.target.value,
+                                priorityTitle: event.target.value,
                               },
                             }))
                           }
-                          className="min-w-0 flex-1 rounded border border-app-border bg-app-base px-2 py-1 text-xs text-white"
+                          placeholder={`Add priority for ${owner}`}
+                          className="rounded border border-app-border bg-app-base px-2 py-1 text-sm text-white"
                         />
-                        <LoadingButton
-                          type="button"
-                          isLoading={
-                            getSaveStatus(`board-backlog-add-${ownerKey}`) ===
-                            "saving"
+                        <div className="flex gap-2">
+                          <input
+                            type="date"
+                            value={draft.priorityDueDate}
+                            onChange={(event) =>
+                              setTaskBoardDrafts((previous) => ({
+                                ...previous,
+                                [owner]: {
+                                  ...draft,
+                                  priorityDueDate: event.target.value,
+                                },
+                              }))
+                            }
+                            className="min-w-0 flex-1 rounded border border-app-border bg-app-base px-2 py-1 text-xs text-white"
+                          />
+                          <LoadingButton
+                            type="button"
+                            isLoading={
+                              getSaveStatus(
+                                `board-priority-add-${ownerKey}`,
+                              ) === "saving"
+                            }
+                            loadingLabel="Adding"
+                            onClick={() => void addPriorityTaskForOwner(owner)}
+                            className="rounded border border-brand px-3 py-1 text-xs font-semibold text-brand hover:bg-brand hover:text-white"
+                          >
+                            Add
+                          </LoadingButton>
+                          {saveStatusBadge(`board-priority-add-${ownerKey}`)}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div
+                      onDragOver={(event) => event.preventDefault()}
+                      onDrop={(event) => {
+                        event.stopPropagation();
+                        void dropIntoBacklog(owner);
+                      }}
+                      className="relative space-y-2 rounded-lg border border-dashed border-app-border bg-app-base/50 p-2"
+                    >
+                      {activeDropKey === `backlog-${owner}` ? (
+                        <SectionLoadingOverlay label="Moving to backlog" />
+                      ) : null}
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs uppercase tracking-[0.12em] text-app-muted">
+                          Backlog
+                        </p>
+                        <span className="text-[11px] text-app-muted">
+                          {filteredTodos.length}
+                        </span>
+                      </div>
+                      {filteredTodos.length > 0 ? (
+                        filteredTodos.map((todo) => {
+                          const todoStatus = todoStatusFor(todo);
+                          const task = { type: "todo", id: todo.id } as const;
+                          const detail = getTaskDetail(task);
+                          const completedSubtasks = detail.subtasks.filter(
+                            (subtask) => subtask.isComplete,
+                          ).length;
+                          const progress =
+                            detail.subtasks.length === 0
+                              ? 0
+                              : Math.round(
+                                  (completedSubtasks / detail.subtasks.length) *
+                                    100,
+                                );
+
+                          return (
+                            <div
+                              key={todo.id}
+                              role="button"
+                              tabIndex={0}
+                              aria-label={`Open task ${todo.task_description}`}
+                              onClick={() => openBoardTask("todo", todo.id)}
+                              onKeyDown={(event) =>
+                                handleTaskCardKeyDown(event, "todo", todo.id)
+                              }
+                              draggable
+                              onDragStart={() =>
+                                setDraggingTask({ type: "todo", id: todo.id })
+                              }
+                              onDragEnd={() => setDraggingTask(null)}
+                              className="group cursor-pointer rounded-lg border border-app-border bg-app-panel p-3 shadow-sm transition hover:-translate-y-0.5 hover:border-brand/70 hover:shadow-xl"
+                            >
+                              <div className="mb-2 flex flex-wrap gap-1">
+                                {detail.labels.slice(0, 3).map((label) => (
+                                  <span
+                                    key={label.id}
+                                    className="h-2 w-10 rounded-full"
+                                    style={{ backgroundColor: label.color }}
+                                    title={label.name}
+                                  />
+                                ))}
+                              </div>
+                              <div
+                                className="flex items-start gap-2"
+                                onClick={(event) => event.stopPropagation()}
+                              >
+                                <span className="select-none pt-1 text-lg leading-none text-app-muted group-hover:text-brand">
+                                  ::
+                                </span>
+                                <input
+                                  defaultValue={todo.task_description}
+                                  onBlur={(event) =>
+                                    updateTodoTask(todo.id, event.target.value)
+                                  }
+                                  className={`min-w-0 flex-1 rounded border border-app-border bg-app-base px-2 py-1 text-sm font-medium ${
+                                    todo.is_complete
+                                      ? "text-app-muted line-through"
+                                      : "text-white"
+                                  }`}
+                                />
+                              </div>
+                              <div
+                                className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-app-muted"
+                                onClick={(event) => event.stopPropagation()}
+                              >
+                                <span
+                                  className={`rounded-full border px-2 py-1 font-semibold ${priorityClassName(detail.priority)}`}
+                                >
+                                  {detail.priority}
+                                </span>
+                                <span
+                                  className={`rounded-full border px-2 py-1 font-semibold ${statusClassName(detail.status)}`}
+                                >
+                                  {detail.status}
+                                </span>
+                                <select
+                                  value={todo.owner}
+                                  onChange={(event) =>
+                                    updateTodoOwner(todo.id, event.target.value)
+                                  }
+                                  className="rounded border border-app-border bg-app-base px-2 py-1 text-xs text-white"
+                                >
+                                  {ownerOptionsFor(todo.owner).map(
+                                    (ownerOption) => (
+                                      <option key={ownerOption}>
+                                        {ownerOption}
+                                      </option>
+                                    ),
+                                  )}
+                                </select>
+                                <input
+                                  type="date"
+                                  value={todo.due_date ?? ""}
+                                  onChange={(event) =>
+                                    updateTodoDueDate(
+                                      todo.id,
+                                      event.target.value,
+                                    )
+                                  }
+                                  className="rounded border border-app-border bg-app-base px-2 py-1 text-xs text-white"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    todo.due_date
+                                      ? undefined
+                                      : void updateTodoStatus(
+                                          todo.id,
+                                          todoStatus,
+                                        )
+                                  }
+                                  disabled={Boolean(todo.due_date)}
+                                  className={`rounded px-2 py-1 text-[11px] font-semibold ${
+                                    todoStatus === "On Track"
+                                      ? "bg-emerald-700 text-white"
+                                      : "bg-brand text-white"
+                                  } ${todo.due_date ? "cursor-default opacity-80" : ""}`}
+                                >
+                                  {todoStatus}
+                                </button>
+                                <label className="flex items-center gap-1 rounded border border-app-border px-2 py-1">
+                                  <input
+                                    type="checkbox"
+                                    checked={todo.is_complete}
+                                    onChange={() =>
+                                      toggleTodoComplete(
+                                        todo.id,
+                                        todo.is_complete,
+                                      )
+                                    }
+                                    className="h-3.5 w-3.5 accent-brand"
+                                  />
+                                  Done
+                                </label>
+                                <button
+                                  type="button"
+                                  onClick={() => void moveTodoToRock(todo.id)}
+                                  className="rounded border border-app-border px-2 py-1 transition hover:text-white"
+                                >
+                                  Move to Priority
+                                </button>
+                                {saveStatusBadge(`todo-${todo.id}`)}
+                                <button
+                                  type="button"
+                                  onClick={() => archiveTodo(todo.id)}
+                                  className="rounded border border-app-border px-2 py-1 transition hover:text-yellow-500"
+                                >
+                                  Archive
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => deleteTodo(todo.id)}
+                                  className="rounded border border-app-border px-2 py-1 transition hover:text-brand"
+                                >
+                                  Delete
+                                </button>
+                              </div>
+                              <div className="mt-3 flex items-center justify-end gap-2">
+                                <div className="flex items-center gap-2 text-[11px] text-app-muted">
+                                  {detail.comments.length > 0 ? (
+                                    <span>
+                                      {detail.comments.length} comments
+                                    </span>
+                                  ) : null}
+                                  {detail.attachments.length > 0 ? (
+                                    <span>
+                                      {detail.attachments.length} files
+                                    </span>
+                                  ) : null}
+                                </div>
+                              </div>
+                              {detail.subtasks.length > 0 ? (
+                                <div className="mt-3">
+                                  <div className="mb-1 flex justify-between text-[11px] text-app-muted">
+                                    <span>Checklist</span>
+                                    <span>
+                                      {completedSubtasks}/
+                                      {detail.subtasks.length}
+                                    </span>
+                                  </div>
+                                  <div className="h-1.5 overflow-hidden rounded-full bg-app-base">
+                                    <div
+                                      className="h-full rounded-full bg-brand transition-all"
+                                      style={{ width: `${progress}%` }}
+                                    />
+                                  </div>
+                                </div>
+                              ) : null}
+                            </div>
+                          );
+                        })
+                      ) : (
+                        <p className="rounded border border-dashed border-app-border bg-app-base px-3 py-3 text-sm text-app-muted">
+                          No backlog items.
+                        </p>
+                      )}
+
+                      <div className="grid gap-2 rounded-lg border border-app-border bg-app-panel p-2">
+                        <input
+                          value={draft.backlogTask}
+                          onChange={(event) =>
+                            setTaskBoardDrafts((previous) => ({
+                              ...previous,
+                              [owner]: {
+                                ...draft,
+                                backlogTask: event.target.value,
+                              },
+                            }))
                           }
-                          loadingLabel="Adding"
-                          onClick={() => void addBacklogTaskForOwner(owner)}
-                          className="rounded border border-brand px-3 py-1 text-xs font-semibold text-brand hover:bg-brand hover:text-white"
-                        >
-                          Add
-                        </LoadingButton>
-                        {saveStatusBadge(`board-backlog-add-${ownerKey}`)}
+                          placeholder={`Add backlog for ${owner}`}
+                          className="rounded border border-app-border bg-app-base px-2 py-1 text-sm text-white"
+                        />
+                        <div className="flex gap-2">
+                          <input
+                            type="date"
+                            value={draft.backlogDueDate}
+                            onChange={(event) =>
+                              setTaskBoardDrafts((previous) => ({
+                                ...previous,
+                                [owner]: {
+                                  ...draft,
+                                  backlogDueDate: event.target.value,
+                                },
+                              }))
+                            }
+                            className="min-w-0 flex-1 rounded border border-app-border bg-app-base px-2 py-1 text-xs text-white"
+                          />
+                          <LoadingButton
+                            type="button"
+                            isLoading={
+                              getSaveStatus(`board-backlog-add-${ownerKey}`) ===
+                              "saving"
+                            }
+                            loadingLabel="Adding"
+                            onClick={() => void addBacklogTaskForOwner(owner)}
+                            className="rounded border border-brand px-3 py-1 text-xs font-semibold text-brand hover:bg-brand hover:text-white"
+                          >
+                            Add
+                          </LoadingButton>
+                          {saveStatusBadge(`board-backlog-add-${ownerKey}`)}
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
-              </article>
-            );
-          })}
+                </article>
+              );
+            })}
           </motion.div>
         </AnimatePresence>
       </section>
@@ -4810,7 +4883,9 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                     </button>
                     <button
                       type="button"
-                      onClick={() => applyDescriptionFormat("insertUnorderedList")}
+                      onClick={() =>
+                        applyDescriptionFormat("insertUnorderedList")
+                      }
                       className="rounded border border-app-border px-2 py-1 text-xs text-white transition hover:border-brand hover:text-brand"
                     >
                       Bullets
@@ -4983,8 +5058,7 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
                     <LoadingButton
                       type="button"
                       isLoading={
-                        getSaveStatus(`${selectedTaskKey}-comment`) ===
-                        "saving"
+                        getSaveStatus(`${selectedTaskKey}-comment`) === "saving"
                       }
                       loadingLabel="Posting"
                       onClick={() => {
