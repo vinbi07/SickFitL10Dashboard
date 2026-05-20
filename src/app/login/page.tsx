@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import { loginAction } from "@/app/login/actions";
 import { LoadingButton } from "@/components/ui/loading";
 
@@ -9,6 +9,7 @@ export default function LoginPage() {
   const [state, formAction, isPending] = useActionState(loginAction, {
     error: null,
   });
+  const [showPassword, setShowPassword] = useState(false);
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-app-base px-4">
@@ -32,14 +33,25 @@ export default function LoginPage() {
           <label className="block text-sm text-app-muted" htmlFor="password">
             Team Password
           </label>
-          <input
-            id="password"
-            name="password"
-            type="password"
-            required
-            className="w-full rounded-lg border border-app-border bg-black px-3 py-2 text-white outline-none transition focus:border-brand"
-            placeholder="Enter password"
-          />
+          <div className="relative">
+            <input
+              id="password"
+              name="password"
+              type={showPassword ? "text" : "password"}
+              required
+              className="w-full rounded-lg border border-app-border bg-black py-2 pl-3 pr-20 text-white outline-none transition focus:border-brand"
+              placeholder="Enter password"
+            />
+            <button
+              type="button"
+              aria-label={showPassword ? "Hide password" : "Show password"}
+              title={showPassword ? "Hide password" : "Show password"}
+              onClick={() => setShowPassword((current) => !current)}
+              className="absolute right-2 top-1/2 h-8 -translate-y-1/2 px-2 text-sm font-semibold text-app-muted transition hover:text-white focus:outline-none focus:ring-2 focus:ring-brand"
+            >
+              {showPassword ? "Hide" : "Show"}
+            </button>
+          </div>
           <LoadingButton
             type="submit"
             isLoading={isPending}

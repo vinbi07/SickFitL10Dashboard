@@ -2,7 +2,11 @@
 
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { signSession, sessionCookie } from "@/lib/auth/session";
+import {
+  createTeamSession,
+  getSessionCookieOptions,
+  sessionCookie,
+} from "@/lib/auth/session";
 
 interface LoginState {
   error: string | null;
@@ -18,16 +22,10 @@ export async function loginAction(
     return { error: "Invalid team password." };
   }
 
-  const token = await signSession({ team: "sickfit" });
+  const token = await createTeamSession();
   const cookieStore = await cookies();
 
-  cookieStore.set(sessionCookie.name, token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    maxAge: sessionCookie.maxAge,
-    path: "/",
-  });
+  cookieStore.set(sessionCookie.name, token, getSessionCookieOptions());
 
   redirect("/dashboard");
 }

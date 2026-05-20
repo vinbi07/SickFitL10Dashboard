@@ -31,6 +31,10 @@ Required vars:
 - `TEAM_PASSWORD`
 - `SESSION_SECRET`
 
+Optional vars:
+
+- `SESSION_MAX_AGE_DAYS` defaults to `30` and controls how long a valid password session is remembered.
+
 3. Add local header font files:
 
 - `public/fonts/Gilroy-Bold.woff2`

@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { sessionCookie, verifySession } from "@/lib/auth/session";
+import {
+  getSessionCookieOptions,
+  refreshTeamSession,
+  sessionCookie,
+  verifySession,
+} from "@/lib/auth/session";
 
 const PUBLIC_PATHS = ["/login"];
 
@@ -12,14 +17,30 @@ export async function proxy(request: NextRequest) {
   const session = token ? await verifySession(token) : null;
 
   if (isPublicPath && session) {
-    return NextResponse.redirect(new URL("/dashboard", request.url));
+    const response = NextResponse.redirect(new URL("/dashboard", request.url));
+    response.cookies.set(
+      sessionCookie.name,
+      await refreshTeamSession(session),
+      getSessionCookieOptions(),
+    );
+    return response;
   }
 
   if (!isPublicPath && !session) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
 
-  return NextResponse.next();
+  const response = NextResponse.next();
+
+  if (session) {
+    response.cookies.set(
+      sessionCookie.name,
+      await refreshTeamSession(session),
+      getSessionCookieOptions(),
+    );
+  }
+
+  return response;
 }
 
 export const config = {
