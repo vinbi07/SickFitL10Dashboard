@@ -1,6 +1,11 @@
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { unstable_cache } from "next/cache";
+import { createClient } from "@supabase/supabase-js";
+import { env } from "@/lib/supabase/env";
 import { getShopifyFinancialSummary, getShopifyPeriodMetrics } from "@/lib/shopify/dashboard";
 import type { DashboardData } from "@/lib/types";
+
+export const DASHBOARD_CACHE_TAG = "dashboard-data";
+const DASHBOARD_CACHE_REVALIDATE_SECONDS = 10;
 
 type SupabaseSelectResult<T> = {
   data: T[] | null;
@@ -22,8 +27,17 @@ function dataOrEmpty<T>(result: SupabaseSelectResult<T>, optional = false) {
   return result.data ?? [];
 }
 
-export async function getDashboardData(): Promise<DashboardData> {
-  const supabase = await createSupabaseServerClient();
+async function fetchDashboardData(): Promise<DashboardData> {
+  const supabase = createClient(
+    env.NEXT_PUBLIC_SUPABASE_URL,
+    env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+      },
+    },
+  );
 
   const [
     scorecard,
@@ -134,3 +148,12 @@ export async function getDashboardData(): Promise<DashboardData> {
     shopify_period_metrics: shopifyPeriodMetrics,
   };
 }
+
+export const getDashboardData = unstable_cache(
+  fetchDashboardData,
+  ["dashboard-data"],
+  {
+    tags: [DASHBOARD_CACHE_TAG],
+    revalidate: DASHBOARD_CACHE_REVALIDATE_SECONDS,
+  },
+);

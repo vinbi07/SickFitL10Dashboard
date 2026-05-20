@@ -1,7 +1,13 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, updateTag } from "next/cache";
+import { DASHBOARD_CACHE_TAG } from "@/lib/supabase/dashboard";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+
+function revalidateDashboardData() {
+  updateTag(DASHBOARD_CACHE_TAG);
+  revalidatePath("/dashboard");
+}
 
 function computeMeetingHealth(payload: {
   scorecard: Array<{ goal: number; actual: number; status: "On Track" | "Off Track" }>;
@@ -68,7 +74,7 @@ export async function createMeetingAction(formData: FormData) {
     return { ok: false, error: error.message };
   }
 
-  revalidatePath("/dashboard");
+  revalidateDashboardData();
   return { ok: true, meetingId: data.id };
 }
 
@@ -148,7 +154,7 @@ export async function closeMeetingAndSnapshotAction(formData: FormData) {
     return { ok: false, error: closeError.message };
   }
 
-  revalidatePath("/dashboard");
+  revalidateDashboardData();
   return { ok: true, healthScore };
 }
 
@@ -241,7 +247,7 @@ export async function carryoverItemsToMeetingAction(formData: FormData) {
     }
   }
 
-  revalidatePath("/dashboard");
+  revalidateDashboardData();
   return {
     ok: true,
     counts: {
@@ -286,6 +292,6 @@ export async function updateShopifyTargetAction(
     });
   }
 
-  revalidatePath("/dashboard");
+  revalidateDashboardData();
   return { ok: true };
 }
