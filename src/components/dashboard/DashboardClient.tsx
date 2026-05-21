@@ -2453,10 +2453,16 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
   }
 
   async function deleteRock(id: string) {
-    await runMutation(
+    const success = await runMutation(
       `rock-${id}`,
       supabase.from("rocks").delete().eq("id", id),
     );
+    if (success) {
+      setData((previous) => ({
+        ...previous,
+        rocks: previous.rocks.filter((rock) => rock.id !== id),
+      }));
+    }
   }
 
   async function archiveRock(id: string) {
@@ -2646,10 +2652,16 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
   }
 
   async function deleteTodo(id: string) {
-    await runMutation(
+    const success = await runMutation(
       `todo-${id}`,
       supabase.from("todos").delete().eq("id", id),
     );
+    if (success) {
+      setData((previous) => ({
+        ...previous,
+        todos: previous.todos.filter((todo) => todo.id !== id),
+      }));
+    }
   }
 
   async function archiveTodo(id: string) {
@@ -2694,10 +2706,16 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
       return;
     }
 
-    await runMutation(
+    const deleted = await runMutation(
       `rock-${rockId}`,
       supabase.from("rocks").delete().eq("id", rockId),
     );
+    if (deleted) {
+      setData((previous) => ({
+        ...previous,
+        rocks: previous.rocks.filter((rock) => rock.id !== rockId),
+      }));
+    }
   }
 
   async function moveTodoToRock(todoId: string, ownerOverride?: string) {
@@ -2721,10 +2739,16 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
       return;
     }
 
-    await runMutation(
+    const deleted = await runMutation(
       `todo-${todoId}`,
       supabase.from("todos").delete().eq("id", todoId),
     );
+    if (deleted) {
+      setData((previous) => ({
+        ...previous,
+        todos: previous.todos.filter((todo) => todo.id !== todoId),
+      }));
+    }
   }
 
   async function dropIntoPriority(ownerOverride?: string) {
