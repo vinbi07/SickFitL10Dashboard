@@ -78,6 +78,7 @@ export function SalesTrackerClient({ initialData }: SalesTrackerClientProps) {
         day_index: nextEntry.day_index,
         amount: nextEntry.amount,
         note: nextEntry.note,
+        referral_partners_added: nextEntry.referral_partners_added,
         created_at: "",
         updated_at: "",
       };
@@ -257,6 +258,12 @@ export function SalesTrackerClient({ initialData }: SalesTrackerClientProps) {
               }
               onEntrySave={(entry) => void saveEntry(entry)}
               onDelete={() => void deleteRep(rep)}
+              onReferralPartnersChange={(entry, value) =>
+                setLocalEntry({
+                  ...entry,
+                  referral_partners_added: Math.max(0, Number(value) || 0),
+                })
+              }
               onGoalChange={(nextGoal) => {
                 const nextRep = {
                   ...rep,

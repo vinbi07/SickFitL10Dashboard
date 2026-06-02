@@ -12,22 +12,31 @@ export function TeamSalesSummary({
   const teamStats = calculateTeamStats(repsWithEntries);
 
   return (
-    <section className="mb-4 grid grid-cols-[minmax(0,1.25fr)_minmax(7rem,0.75fr)] gap-3">
-      <article className="rounded-2xl border border-brand/70 bg-app-panel p-4 shadow-xl shadow-black/10">
-        <div className="inline-flex rounded-full border border-brand/40 bg-[#e72027]/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-brand">
+    <section className="mb-4 grid grid-cols-[minmax(0,1.1fr)_minmax(6.25rem,0.7fr)_minmax(6.25rem,0.7fr)] gap-2 md:gap-3">
+      <article className="rounded-xl border border-brand/70 bg-app-panel p-3 shadow-lg shadow-black/10 md:p-4">
+        <div className="inline-flex py-0.5 text-[7.5px] font-semibold uppercase tracking-[0.1em] text-brand sm:text-[10px] sm:tracking-[0.14em]">
           Team total this week
         </div>
-        <p className="mt-3 font-heading text-2xl leading-none text-white sm:text-4xl md:text-5xl">
+        <p className="mt-2 font-heading text-xl leading-none text-white sm:text-3xl md:text-4xl">
           {formatMoney(teamStats.total)}
         </p>
       </article>
 
-      <article className="flex flex-col justify-center rounded-2xl border border-app-border bg-app-panel p-4 text-left">
-        <p className="text-[10px] uppercase tracking-[0.14em] text-app-muted">
+      <article className="flex flex-col justify-center rounded-xl border border-app-border bg-app-panel p-3 text-left md:p-4">
+        <p className="text-[7.5px] uppercase tracking-[0.1em] text-app-muted sm:text-[10px] sm:tracking-[0.14em]">
           Goal days hit
         </p>
-        <p className="mt-2 font-heading text-2xl text-white sm:text-3xl">
+        <p className="mt-1 font-heading text-lg text-white sm:text-2xl md:text-3xl">
           {teamStats.daysHit} / {teamStats.daysLogged}
+        </p>
+      </article>
+
+      <article className="flex flex-col justify-center rounded-xl border border-app-border bg-app-panel p-3 text-left md:p-4">
+        <p className="text-[7.5px] uppercase tracking-[0.1em] text-app-muted sm:text-[10px] sm:tracking-[0.14em]">
+          Partners
+        </p>
+        <p className="mt-1 font-heading text-lg text-white sm:text-2xl md:text-3xl">
+          {teamStats.referralPartnersAdded}
         </p>
       </article>
     </section>

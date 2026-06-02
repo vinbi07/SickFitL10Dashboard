@@ -60,9 +60,15 @@ export function calculateTeamStats(reps: SalesRepWithEntries[]) {
         total: team.total + stats.total,
         daysHit: team.daysHit + stats.daysHit,
         daysLogged: team.daysLogged + stats.daysLogged,
+        referralPartnersAdded:
+          team.referralPartnersAdded +
+          item.entries.reduce(
+            (sum, entry) => sum + Number(entry.referral_partners_added || 0),
+            0,
+          ),
       };
     },
-    { total: 0, daysHit: 0, daysLogged: 0 },
+    { total: 0, daysHit: 0, daysLogged: 0, referralPartnersAdded: 0 },
   );
 }
 
@@ -77,6 +83,7 @@ export function createEmptyWeekEntries(
     day_index: dayIndex,
     amount: null,
     note: "",
+    referral_partners_added: 0,
   }));
 }
 
@@ -99,6 +106,7 @@ export function composeRepsWithEntries(
           day_index: entry.day_index,
           amount: entry.amount,
           note: entry.note,
+          referral_partners_added: entry.referral_partners_added,
         };
       });
 

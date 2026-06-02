@@ -2,10 +2,7 @@ import {
   calculateRepStats,
   formatMoney,
 } from "@/lib/sales-tracker/calculations";
-import type {
-  SalesDayEntry,
-  SalesRepRow,
-} from "@/lib/sales-tracker/types";
+import type { SalesDayEntry, SalesRepRow } from "@/lib/sales-tracker/types";
 import { SalesDayTile } from "@/components/sales-tracker/SalesDayTile";
 
 interface SalesRepCardProps {
@@ -17,6 +14,7 @@ interface SalesRepCardProps {
   onGoalChange: (value: string) => void;
   onRepSave: (rep: SalesRepRow) => void;
   onDelete: () => void;
+  onReferralPartnersChange: (entry: SalesDayEntry, value: string) => void;
   onAmountChange: (entry: SalesDayEntry, value: string) => void;
   onNoteChange: (entry: SalesDayEntry, value: string) => void;
   onEntrySave: (entry: SalesDayEntry) => void;
@@ -31,11 +29,16 @@ export function SalesRepCard({
   onGoalChange,
   onRepSave,
   onDelete,
+  onReferralPartnersChange,
   onAmountChange,
   onNoteChange,
   onEntrySave,
 }: SalesRepCardProps) {
   const stats = calculateRepStats(rep, entries);
+  const referralPartnersAdded = entries.reduce(
+    (sum, entry) => sum + Number(entry.referral_partners_added || 0),
+    0,
+  );
   const tileEntries = weekEntries.map(
     (_, index) => entries[index] ?? weekEntries[index],
   );
@@ -81,9 +84,9 @@ export function SalesRepCard({
         </div>
       </div>
 
-      <div className="mt-4 grid grid-cols-[repeat(3,minmax(0,1fr))] gap-2 md:grid-cols-[repeat(3,minmax(0,120px))_1fr] md:items-end md:gap-3">
+      <div className="mt-4 grid grid-cols-4 gap-2 md:grid-cols-[repeat(4,minmax(0,112px))_1fr] md:items-end md:gap-3">
         <div>
-          <p className="font-heading text-xl text-white sm:text-2xl md:text-3xl">
+          <p className="font-heading text-lg text-white sm:text-2xl md:text-3xl">
             {formatMoney(stats.total)}
           </p>
           <p className="text-[10px] uppercase tracking-[0.1em] text-app-muted sm:text-xs sm:tracking-[0.12em]">
@@ -91,7 +94,7 @@ export function SalesRepCard({
           </p>
         </div>
         <div>
-          <p className="font-heading text-xl text-emerald-400 sm:text-2xl md:text-3xl">
+          <p className="font-heading text-lg text-emerald-400 sm:text-2xl md:text-3xl">
             {stats.daysHit}
           </p>
           <p className="text-[10px] uppercase tracking-[0.1em] text-app-muted sm:text-xs sm:tracking-[0.12em]">
@@ -99,14 +102,25 @@ export function SalesRepCard({
           </p>
         </div>
         <div>
-          <p className="font-heading text-xl text-white sm:text-2xl md:text-3xl">
+          <p className="font-heading text-lg text-white sm:text-2xl md:text-3xl">
             {stats.daysLogged}
           </p>
           <p className="text-[10px] uppercase tracking-[0.1em] text-app-muted sm:text-xs sm:tracking-[0.12em]">
             Days logged
           </p>
         </div>
-        <div className="col-span-3 min-w-0 md:col-span-1">
+        <div>
+          <p
+            className="font-heading text-lg text-white sm:text-2xl md:text-3xl"
+            aria-label={`${rep.name} referral partners added to network this week`}
+          >
+            {referralPartnersAdded}
+          </p>
+          <p className="text-[10px] uppercase tracking-[0.1em] text-app-muted sm:text-xs sm:tracking-[0.12em]">
+            Partners
+          </p>
+        </div>
+        <div className="col-span-4 min-w-0 md:col-span-1">
           <div className="h-2.5 overflow-hidden rounded-full bg-app-border">
             <div
               className="h-full rounded-full bg-emerald-500 transition-[width]"
@@ -119,7 +133,7 @@ export function SalesRepCard({
         </div>
       </div>
 
-      <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-7">
+      <div className="mt-4 grid grid-cols-7 gap-1 md:gap-2">
         {tileEntries.map((entry) => (
           <SalesDayTile
             key={`${entry.rep_id}-${entry.day_index}`}
@@ -127,6 +141,9 @@ export function SalesRepCard({
             goal={rep.daily_goal}
             isToday={entry.entry_date === todayKey}
             onAmountChange={(value) => onAmountChange(entry, value)}
+            onReferralPartnersChange={(value) =>
+              onReferralPartnersChange(entry, value)
+            }
             onNoteChange={(value) => onNoteChange(entry, value)}
             onSave={() => onEntrySave(entry)}
             repName={rep.name}

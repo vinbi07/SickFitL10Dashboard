@@ -81,6 +81,7 @@ function normalizeEntry(row: Record<string, unknown>): SalesWeekEntryRow {
     day_index: toNumber(row.day_index),
     amount: row.amount === null ? null : toNumber(row.amount),
     note: String(row.note ?? ""),
+    referral_partners_added: toNumber(row.referral_partners_added),
     created_at: String(row.created_at ?? ""),
     updated_at: String(row.updated_at ?? ""),
   };
@@ -204,6 +205,10 @@ export async function upsertSalesDayEntryWithClient(
     day_index: entry.day_index,
     amount: entry.amount,
     note: entry.note,
+    referral_partners_added: Math.max(
+      0,
+      Math.round(Number(entry.referral_partners_added) || 0),
+    ),
     updated_at: new Date().toISOString(),
   };
 

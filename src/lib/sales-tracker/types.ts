@@ -16,6 +16,7 @@ export interface SalesWeekEntryRow {
   day_index: number;
   amount: number | null;
   note: string;
+  referral_partners_added: number;
   created_at: string;
   updated_at: string;
 }
@@ -28,6 +29,7 @@ export interface SalesDayEntry {
   day_index: number;
   amount: number | null;
   note: string;
+  referral_partners_added: number;
 }
 
 export type SalesDayStatus = "hit" | "miss" | "empty";
