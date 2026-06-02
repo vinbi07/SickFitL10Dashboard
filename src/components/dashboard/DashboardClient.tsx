@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   useEffect,
@@ -7339,6 +7340,12 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
               {activeMeeting.label} - {activeMeeting.meeting_date}
             </span>
           ) : null}
+          <Link
+            href="/sales-tracker"
+            className="rounded-lg border border-app-border px-3 py-2 text-sm font-semibold text-app-muted transition hover:border-[#e72027] hover:bg-[#e72027]/10 hover:text-brand"
+          >
+            Sales Tracker
+          </Link>
           <span className="rounded border border-app-border px-2 py-1 text-xs text-white">
             Meeting Health: {meetingHealth.score}% ({meetingHealth.grade})
           </span>
