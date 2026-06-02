@@ -67,7 +67,7 @@ export function SalesRepCard({
     const clamped = Math.max(0, Math.min(100, value));
 
     return (
-      <div className="flex items-center gap-2 rounded-lg border border-app-border bg-app-base p-2">
+      <div className="flex flex-col md:flex-row items-center gap-2 rounded-lg border border-app-border bg-app-base p-2 ">
         <div
           className="grid h-12 w-12 place-items-center rounded-full"
           style={{
