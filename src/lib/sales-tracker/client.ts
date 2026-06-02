@@ -5,15 +5,22 @@ import {
   clearSalesWeekWithClient,
   createSalesRepWithClient,
   deleteSalesRepWithClient,
+  fetchSalesRepWeekGoals,
   fetchSalesWeekEntries,
   updateSalesRepWithClient,
   upsertSalesDayEntryWithClient,
+  upsertSalesRepWeekGoalWithClient,
 } from "@/lib/sales-tracker/service";
 import type { SalesDayEntry, SalesRepRow } from "@/lib/sales-tracker/types";
 
 export async function loadSalesTrackerWeek(weekStartDate: string) {
   const client = createSupabaseBrowserClient();
-  return await fetchSalesWeekEntries(client, weekStartDate);
+  const [entries, goals] = await Promise.all([
+    fetchSalesWeekEntries(client, weekStartDate),
+    fetchSalesRepWeekGoals(client, weekStartDate),
+  ]);
+
+  return { entries, goals };
 }
 
 export async function updateSalesRep(rep: SalesRepRow) {
@@ -38,6 +45,15 @@ export async function deleteSalesRep(repId: string) {
 export async function upsertSalesDayEntry(entry: SalesDayEntry) {
   const client = createSupabaseBrowserClient();
   return await upsertSalesDayEntryWithClient(client, entry);
+}
+
+export async function upsertSalesRepWeekGoal(payload: {
+  repId: string;
+  weekStartDate: string;
+  referralPartnersGoal: number;
+}) {
+  const client = createSupabaseBrowserClient();
+  return await upsertSalesRepWeekGoalWithClient(client, payload);
 }
 
 export async function clearSalesWeek(weekStartDate: string) {

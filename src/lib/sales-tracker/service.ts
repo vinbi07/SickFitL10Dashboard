@@ -1,6 +1,7 @@
 import { getEntryDate } from "@/lib/sales-tracker/date";
 import type {
   SalesDayEntry,
+  SalesRepWeekGoalRow,
   SalesRepRow,
   SalesWeekEntryRow,
 } from "@/lib/sales-tracker/types";
@@ -87,6 +88,17 @@ function normalizeEntry(row: Record<string, unknown>): SalesWeekEntryRow {
   };
 }
 
+function normalizeGoal(row: Record<string, unknown>): SalesRepWeekGoalRow {
+  return {
+    id: String(row.id),
+    rep_id: String(row.rep_id),
+    week_start_date: String(row.week_start_date),
+    referral_partners_goal: toNumber(row.referral_partners_goal),
+    created_at: String(row.created_at ?? ""),
+    updated_at: String(row.updated_at ?? ""),
+  };
+}
+
 export async function fetchSalesReps(client: SalesTrackerSupabaseClient) {
   const { data, error } = await (client
     .from("sales_reps")
@@ -117,6 +129,22 @@ export async function fetchSalesWeekEntries(
   }
 
   return (data ?? []).map((row) => normalizeEntry(row));
+}
+
+export async function fetchSalesRepWeekGoals(
+  client: SalesTrackerSupabaseClient,
+  weekStartDate: string,
+) {
+  const { data, error } = await (client
+    .from("sales_rep_week_goals")
+    .select("*") as SupabaseSelectBuilder<Record<string, unknown>>)
+    .eq("week_start_date", weekStartDate);
+
+  if (error) {
+    throw error;
+  }
+
+  return (data ?? []).map((row) => normalizeGoal(row));
 }
 
 export async function updateSalesRepWithClient(
@@ -229,6 +257,40 @@ export async function upsertSalesDayEntryWithClient(
   }
 
   return normalizeEntry(data);
+}
+
+export async function upsertSalesRepWeekGoalWithClient(
+  client: SalesTrackerSupabaseClient,
+  payload: {
+    repId: string;
+    weekStartDate: string;
+    referralPartnersGoal: number;
+  },
+) {
+  const builder = client.from("sales_rep_week_goals").upsert(
+    {
+      rep_id: payload.repId,
+      week_start_date: payload.weekStartDate,
+      referral_partners_goal: Math.max(
+        0,
+        Math.round(Number(payload.referralPartnersGoal) || 0),
+      ),
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "rep_id,week_start_date" },
+  ) as SupabaseUpsertBuilder<Record<string, unknown>>;
+
+  const { data, error } = await builder.select("*").single();
+
+  if (error) {
+    throw error;
+  }
+
+  if (!data) {
+    throw new Error("No sales rep weekly goal was returned after save.");
+  }
+
+  return normalizeGoal(data);
 }
 
 export async function clearSalesWeekWithClient(

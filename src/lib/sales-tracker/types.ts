@@ -21,6 +21,15 @@ export interface SalesWeekEntryRow {
   updated_at: string;
 }
 
+export interface SalesRepWeekGoalRow {
+  id: string;
+  rep_id: string;
+  week_start_date: string;
+  referral_partners_goal: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface SalesDayEntry {
   id?: string;
   rep_id: string;
@@ -43,4 +52,5 @@ export interface SalesTrackerInitialData {
   weekStartDate: string;
   reps: SalesRepRow[];
   entries: SalesWeekEntryRow[];
+  goals: SalesRepWeekGoalRow[];
 }

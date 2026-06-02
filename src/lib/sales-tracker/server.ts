@@ -1,6 +1,7 @@
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getWeekKey } from "@/lib/sales-tracker/date";
 import {
+  fetchSalesRepWeekGoals,
   fetchSalesReps,
   fetchSalesWeekEntries,
 } from "@/lib/sales-tracker/service";
@@ -11,6 +12,7 @@ export async function getInitialSalesTrackerData(): Promise<SalesTrackerInitialD
   const weekStartDate = getWeekKey(new Date());
   const reps = await fetchSalesReps(client);
   const entries = await fetchSalesWeekEntries(client, weekStartDate);
+  const goals = await fetchSalesRepWeekGoals(client, weekStartDate);
 
-  return { weekStartDate, reps, entries };
+  return { weekStartDate, reps, entries, goals };
 }

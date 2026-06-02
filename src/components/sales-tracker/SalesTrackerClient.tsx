@@ -8,6 +8,7 @@ import {
   loadSalesTrackerWeek,
   updateSalesRep,
   upsertSalesDayEntry,
+  upsertSalesRepWeekGoal,
 } from "@/lib/sales-tracker/client";
 import {
   addDays,
@@ -22,6 +23,7 @@ import {
 } from "@/lib/sales-tracker/calculations";
 import type {
   SalesDayEntry,
+  SalesRepWeekGoalRow,
   SalesRepRow,
   SalesTrackerInitialData,
   SalesWeekEntryRow,
@@ -52,6 +54,9 @@ export function SalesTrackerClient({ initialData }: SalesTrackerClientProps) {
   const [reps, setReps] = useState(initialData.reps);
   const [entries, setEntries] = useState<SalesWeekEntryRow[]>(
     initialData.entries,
+  );
+  const [goals, setGoals] = useState<SalesRepWeekGoalRow[]>(
+    initialData.goals,
   );
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [isLoadingWeek, setIsLoadingWeek] = useState(false);
@@ -98,8 +103,9 @@ export function SalesTrackerClient({ initialData }: SalesTrackerClientProps) {
     setWeekStartDate(nextWeekStartDate);
 
     try {
-      const nextEntries = await loadSalesTrackerWeek(nextWeekStartDate);
-      setEntries(nextEntries);
+      const nextWeek = await loadSalesTrackerWeek(nextWeekStartDate);
+      setEntries(nextWeek.entries);
+      setGoals(nextWeek.goals);
     } catch (error) {
       window.alert(
         `Could not load sales week: ${
@@ -209,6 +215,62 @@ export function SalesTrackerClient({ initialData }: SalesTrackerClientProps) {
     }
   }
 
+  function setLocalGoal(repId: string, value: number) {
+    setGoals((current) => {
+      const index = current.findIndex(
+        (goal) =>
+          goal.rep_id === repId && goal.week_start_date === weekStartDate,
+      );
+      const normalized: SalesRepWeekGoalRow = {
+        id: `local-${repId}-${weekStartDate}`,
+        rep_id: repId,
+        week_start_date: weekStartDate,
+        referral_partners_goal: Math.max(0, Math.round(Number(value) || 0)),
+        created_at: "",
+        updated_at: "",
+      };
+
+      if (index === -1) {
+        return [...current, normalized];
+      }
+
+      return current.map((goal, goalIndex) =>
+        goalIndex === index ? { ...goal, ...normalized, id: goal.id } : goal,
+      );
+    });
+  }
+
+  async function saveReferralPartnerGoal(repId: string, value: number) {
+    setSaveState("saving");
+    setLocalGoal(repId, value);
+
+    try {
+      const savedGoal = await upsertSalesRepWeekGoal({
+        repId,
+        weekStartDate,
+        referralPartnersGoal: value,
+      });
+      setGoals((current) => {
+        const filtered = current.filter(
+          (goal) =>
+            !(
+              goal.rep_id === savedGoal.rep_id &&
+              goal.week_start_date === savedGoal.week_start_date
+            ),
+        );
+        return [...filtered, savedGoal];
+      });
+      setSaveState("saved");
+    } catch (error) {
+      setSaveState("error");
+      window.alert(
+        `Could not save referral partner goal: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`,
+      );
+    }
+  }
+
   async function clearSelectedWeek() {
     const confirmed = window.confirm(
       "Clear all sales entries for this selected week? Reps and other weeks will stay intact.",
@@ -246,13 +308,20 @@ export function SalesTrackerClient({ initialData }: SalesTrackerClientProps) {
           weekStartDate={weekStartDate}
         />
 
-        <TeamSalesSummary repsWithEntries={repsWithEntries} />
+        <TeamSalesSummary goals={goals} repsWithEntries={repsWithEntries} />
 
         <section className="space-y-4" aria-label="Sales reps">
           {repsWithEntries.map(({ rep, entries: repEntries }) => (
             <SalesRepCard
               key={rep.id}
               entries={repEntries}
+              referralPartnersGoal={
+                goals.find(
+                  (goal) =>
+                    goal.rep_id === rep.id &&
+                    goal.week_start_date === weekStartDate,
+                )?.referral_partners_goal ?? 0
+              }
               onAmountChange={(entry, value) =>
                 setLocalEntry({ ...entry, amount: normalizeAmount(value) })
               }
@@ -263,6 +332,12 @@ export function SalesTrackerClient({ initialData }: SalesTrackerClientProps) {
                   ...entry,
                   referral_partners_added: Math.max(0, Number(value) || 0),
                 })
+              }
+              onReferralPartnersGoalChange={(value) =>
+                setLocalGoal(rep.id, Math.max(0, Number(value) || 0))
+              }
+              onReferralPartnersGoalSave={(value) =>
+                void saveReferralPartnerGoal(rep.id, value)
               }
               onGoalChange={(nextGoal) => {
                 const nextRep = {
