@@ -12,37 +12,24 @@ export function TeamSalesSummary({
   const teamStats = calculateTeamStats(repsWithEntries);
 
   return (
-    <section className="mb-4 grid gap-3 lg:grid-cols-[1.6fr_1fr]">
-      <article className="rounded-2xl border-2 border-brand/70 bg-app-panel p-5 shadow-2xl shadow-black/10">
-        <div className="inline-flex rounded-full border border-brand/40 bg-[#e72027]/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-brand">
+    <section className="mb-4 grid grid-cols-[minmax(0,1.25fr)_minmax(7rem,0.75fr)] gap-3">
+      <article className="rounded-2xl border border-brand/70 bg-app-panel p-4 shadow-xl shadow-black/10">
+        <div className="inline-flex rounded-full border border-brand/40 bg-[#e72027]/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-brand">
           Team total this week
         </div>
-        <p className="mt-4 font-heading text-5xl leading-none text-white md:text-6xl">
+        <p className="mt-3 font-heading text-2xl leading-none text-white sm:text-4xl md:text-5xl">
           {formatMoney(teamStats.total)}
-        </p>
-        <p className="mt-3 max-w-xl text-sm text-app-muted">
-          Live total from all logged sales on the selected week.
         </p>
       </article>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
-        <article className="rounded-2xl border border-app-border bg-app-panel p-4">
-          <p className="text-xs uppercase tracking-[0.16em] text-app-muted">
-            Goal days hit
-          </p>
-          <p className="mt-2 font-heading text-4xl text-white">
-            {teamStats.daysHit} / {teamStats.daysLogged}
-          </p>
-        </article>
-        <article className="rounded-2xl border border-app-border bg-app-panel p-4">
-          <p className="text-xs uppercase tracking-[0.16em] text-app-muted">
-            Logged days
-          </p>
-          <p className="mt-2 font-heading text-4xl text-white">
-            {teamStats.daysLogged}
-          </p>
-        </article>
-      </div>
+      <article className="flex flex-col justify-center rounded-2xl border border-app-border bg-app-panel p-4 text-left">
+        <p className="text-[10px] uppercase tracking-[0.14em] text-app-muted">
+          Goal days hit
+        </p>
+        <p className="mt-2 font-heading text-2xl text-white sm:text-3xl">
+          {teamStats.daysHit} / {teamStats.daysLogged}
+        </p>
+      </article>
     </section>
   );
 }

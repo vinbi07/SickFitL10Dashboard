@@ -81,32 +81,32 @@ export function SalesRepCard({
         </div>
       </div>
 
-      <div className="mt-4 grid gap-3 md:grid-cols-[repeat(3,minmax(0,120px))_1fr] md:items-end">
+      <div className="mt-4 grid grid-cols-[repeat(3,minmax(0,1fr))] gap-2 md:grid-cols-[repeat(3,minmax(0,120px))_1fr] md:items-end md:gap-3">
         <div>
-          <p className="font-heading text-3xl text-white">
+          <p className="font-heading text-xl text-white sm:text-2xl md:text-3xl">
             {formatMoney(stats.total)}
           </p>
-          <p className="text-xs uppercase tracking-[0.12em] text-app-muted">
+          <p className="text-[10px] uppercase tracking-[0.1em] text-app-muted sm:text-xs sm:tracking-[0.12em]">
             This week
           </p>
         </div>
         <div>
-          <p className="font-heading text-3xl text-emerald-400">
+          <p className="font-heading text-xl text-emerald-400 sm:text-2xl md:text-3xl">
             {stats.daysHit}
           </p>
-          <p className="text-xs uppercase tracking-[0.12em] text-app-muted">
+          <p className="text-[10px] uppercase tracking-[0.1em] text-app-muted sm:text-xs sm:tracking-[0.12em]">
             Days hit
           </p>
         </div>
         <div>
-          <p className="font-heading text-3xl text-white">
+          <p className="font-heading text-xl text-white sm:text-2xl md:text-3xl">
             {stats.daysLogged}
           </p>
-          <p className="text-xs uppercase tracking-[0.12em] text-app-muted">
+          <p className="text-[10px] uppercase tracking-[0.1em] text-app-muted sm:text-xs sm:tracking-[0.12em]">
             Days logged
           </p>
         </div>
-        <div className="min-w-0">
+        <div className="col-span-3 min-w-0 md:col-span-1">
           <div className="h-2.5 overflow-hidden rounded-full bg-app-border">
             <div
               className="h-full rounded-full bg-emerald-500 transition-[width]"

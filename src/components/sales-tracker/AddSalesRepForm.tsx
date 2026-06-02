@@ -38,23 +38,21 @@ export function AddSalesRepForm({ disabled, onAdd }: AddSalesRepFormProps) {
 
   if (!isOpen) {
     return (
-      <div className="mb-4 flex justify-end">
-        <button
-          type="button"
-          onClick={() => setIsOpen(true)}
-          disabled={disabled}
-          className="rounded-lg border border-app-border bg-app-panel px-3 py-2 text-sm font-semibold text-app-muted transition hover:border-[#e72027] hover:bg-[#e72027]/10 hover:text-brand disabled:cursor-wait disabled:opacity-60"
-        >
-          Add person
-        </button>
-      </div>
+      <button
+        type="button"
+        onClick={() => setIsOpen(true)}
+        disabled={disabled}
+        className="rounded-lg border border-app-border bg-app-panel px-3 py-2 text-sm font-semibold text-app-muted transition hover:border-[#e72027] hover:bg-[#e72027]/10 hover:text-brand disabled:cursor-wait disabled:opacity-60"
+      >
+        Add person
+      </button>
     );
   }
 
   return (
     <form
       onSubmit={(event) => void handleSubmit(event)}
-      className="mb-4 rounded-2xl border border-app-border bg-app-panel p-4"
+      className="w-full rounded-xl border border-app-border bg-app-base p-3"
     >
       <div className="flex flex-col gap-3 md:flex-row md:items-end">
         <label className="flex-1">

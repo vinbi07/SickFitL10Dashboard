@@ -247,11 +247,6 @@ export function SalesTrackerClient({ initialData }: SalesTrackerClientProps) {
 
         <TeamSalesSummary repsWithEntries={repsWithEntries} />
 
-        <AddSalesRepForm
-          disabled={isLoadingWeek}
-          onAdd={(payload) => addRep(payload)}
-        />
-
         <section className="space-y-4" aria-label="Sales reps">
           {repsWithEntries.map(({ rep, entries: repEntries }) => (
             <SalesRepCard
@@ -292,10 +287,16 @@ export function SalesTrackerClient({ initialData }: SalesTrackerClientProps) {
 
         <footer className="mt-5 flex flex-col gap-3 rounded-2xl border border-app-border bg-app-panel p-4 sm:flex-row sm:items-center sm:justify-between">
           <SalesTrackerLegend />
-          <ClearWeekButton
-            disabled={isLoadingWeek}
-            onClear={() => void clearSelectedWeek()}
-          />
+          <div className="flex flex-col gap-2 sm:ml-auto sm:flex-row sm:items-center">
+            <AddSalesRepForm
+              disabled={isLoadingWeek}
+              onAdd={(payload) => addRep(payload)}
+            />
+            <ClearWeekButton
+              disabled={isLoadingWeek}
+              onClear={() => void clearSelectedWeek()}
+            />
+          </div>
         </footer>
 
         <p className="mt-4 text-center text-xs text-app-muted">
