@@ -2,8 +2,21 @@
 
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { getWeekKey, getMonday, formatYmd } from "@/lib/sales-tracker/date";
-import type { MemberKpiRow, MemberKpiDraft, MemberPerson } from "./types";
+import type { MemberKpiRow, MemberKpiDraft, MemberPerson, KpiHistoryRow } from "./types";
 import type { TaskSlideItem } from "./presentationTypes";
+
+async function recordKpiHistory(
+  client: ReturnType<typeof createSupabaseBrowserClient>,
+  kpiId: string,
+  recordedValue: number | null,
+  status: string,
+  source: "manual" | "sync",
+): Promise<void> {
+  const { error } = await client
+    .from("kpi_history")
+    .insert([{ kpi_id: kpiId, recorded_value: recordedValue, status, source }]);
+  if (error) throw error;
+}
 
 export async function fetchAllMemberKpis(): Promise<MemberKpiRow[]> {
   const client = createSupabaseBrowserClient();
@@ -65,7 +78,27 @@ export async function updateMemberKpiProgress(
     .select()
     .single();
   if (error) throw error;
+
+  await recordKpiHistory(client, id, currentValue, status, "manual").catch(
+    (err) => console.warn("[kpi_history] insert failed:", err),
+  );
+
   return data as MemberKpiRow;
+}
+
+export async function fetchRecentKpiHistory(
+  kpiId: string,
+  limit = 10,
+): Promise<KpiHistoryRow[]> {
+  const client = createSupabaseBrowserClient();
+  const { data, error } = await client
+    .from("kpi_history")
+    .select("*")
+    .eq("kpi_id", kpiId)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return (data ?? []) as KpiHistoryRow[];
 }
 
 // ---------------------------------------------------------------------------
@@ -261,6 +294,9 @@ export async function syncSalesTrackerToKpis(
           .single();
         if (error) throw error;
         resultKpis.push(data as MemberKpiRow);
+        await recordKpiHistory(client, existingKpi.id, draft.current_value ?? null, draft.status, "sync").catch(
+          (err) => console.warn("[kpi_history sync]:", err),
+        );
         updated++;
       } else {
         const { data, error } = await client
@@ -270,6 +306,9 @@ export async function syncSalesTrackerToKpis(
           .single();
         if (error) throw error;
         resultKpis.push(data as MemberKpiRow);
+        await recordKpiHistory(client, (data as MemberKpiRow).id, draft.current_value ?? null, draft.status, "sync").catch(
+          (err) => console.warn("[kpi_history sync]:", err),
+        );
         created++;
       }
     }
@@ -302,6 +341,9 @@ export async function syncSalesTrackerToKpis(
           .single();
         if (error) throw error;
         resultKpis.push(data as MemberKpiRow);
+        await recordKpiHistory(client, existingKpi.id, draft.current_value ?? null, draft.status, "sync").catch(
+          (err) => console.warn("[kpi_history sync]:", err),
+        );
         updated++;
       } else {
         const { data, error } = await client
@@ -311,6 +353,9 @@ export async function syncSalesTrackerToKpis(
           .single();
         if (error) throw error;
         resultKpis.push(data as MemberKpiRow);
+        await recordKpiHistory(client, (data as MemberKpiRow).id, draft.current_value ?? null, draft.status, "sync").catch(
+          (err) => console.warn("[kpi_history sync]:", err),
+        );
         created++;
       }
     }

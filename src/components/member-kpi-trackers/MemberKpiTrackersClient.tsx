@@ -7,16 +7,19 @@ import {
   createMemberKpi,
   deleteMemberKpi,
   fetchAllMemberKpis,
+  fetchRecentKpiHistory,
   syncSalesTrackerToKpis,
   updateMemberKpi,
   updateMemberKpiProgress,
   type SalesSyncResult,
 } from "@/lib/member-kpi/client";
-import { computeKpiProgress } from "@/lib/member-kpi/slideHelper";
+import { computeKpiProgress, computeKpiTrend } from "@/lib/member-kpi/slideHelper";
 import {
   GOAL_TYPES,
   STATUS_OPTIONS,
+  TARGET_DIRECTIONS,
   TIME_PERIODS,
+  type KpiHistoryRow,
   type MemberKpiDraft,
   type MemberKpiInitialData,
   type MemberKpiRow,
@@ -92,6 +95,7 @@ interface KpiFormState {
   kpi_name: string;
   description: string;
   goal_type: string;
+  target_direction: string;
   target_value: string;
   current_value: string;
   unit_label: string;
@@ -106,6 +110,7 @@ const EMPTY_FORM: KpiFormState = {
   kpi_name: "",
   description: "",
   goal_type: "Number",
+  target_direction: "higher",
   target_value: "",
   current_value: "",
   unit_label: "",
@@ -121,6 +126,7 @@ function kpiRowToForm(kpi: MemberKpiRow): KpiFormState {
     kpi_name: kpi.kpi_name,
     description: kpi.description ?? "",
     goal_type: kpi.goal_type,
+    target_direction: kpi.target_direction ?? "higher",
     target_value: kpi.target_value != null ? String(kpi.target_value) : "",
     current_value: kpi.current_value != null ? String(kpi.current_value) : "",
     unit_label: kpi.unit_label ?? "",
@@ -139,6 +145,7 @@ function formToDraft(form: KpiFormState, memberName: string): MemberKpiDraft {
     kpi_name: form.kpi_name.trim(),
     description: form.description.trim() || null,
     goal_type: form.goal_type,
+    target_direction: isYesNo ? "higher" : form.target_direction,
     target_value: isYesNo
       ? null
       : form.target_value === ""
@@ -344,6 +351,35 @@ function KpiFormModal({
         </div>
 
         {!isYesNo && (
+          <div>
+            <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-app-muted">
+              Target Direction
+            </label>
+            <div className="flex gap-2">
+              {TARGET_DIRECTIONS.map((dir) => (
+                <button
+                  key={dir}
+                  type="button"
+                  onClick={() => set("target_direction", dir)}
+                  className={`flex-1 rounded-lg border px-3 py-2 text-sm font-semibold transition ${
+                    form.target_direction === dir
+                      ? "border-brand bg-brand/10 text-brand"
+                      : "border-app-border text-app-muted hover:border-app-muted"
+                  }`}
+                >
+                  {dir === "higher" ? "↑ Higher is better" : "↓ Lower is better"}
+                </button>
+              ))}
+            </div>
+            <p className="mt-1 text-[11px] text-app-muted">
+              {form.target_direction === "lower"
+                ? "Progress = target ÷ current. Use for metrics like load time or LCP where a lower value wins."
+                : "Progress = current ÷ target. Use for revenue, completions, or any metric where more is better."}
+            </p>
+          </div>
+        )}
+
+        {!isYesNo && (
           <div className="grid grid-cols-3 gap-3">
             <div>
               <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-app-muted">
@@ -532,10 +568,12 @@ function DeleteConfirmModal({
 
 function UpdateProgressModal({
   kpi,
+  recentHistory,
   onSave,
   onClose,
 }: {
   kpi: MemberKpiRow;
+  recentHistory: KpiHistoryRow[];
   onSave: (currentValue: number | null, status: string) => Promise<void>;
   onClose: () => void;
 }) {
@@ -572,16 +610,38 @@ function UpdateProgressModal({
     ? status === "Complete"
       ? 100
       : 0
-    : kpi.target_value && currentValue !== ""
-      ? clampProgress(
-          Math.round((Number(currentValue) / kpi.target_value) * 100),
-        )
+    : kpi.target_value != null && currentValue !== ""
+      ? (() => {
+          const cur = Number(currentValue);
+          const tgt = kpi.target_value!;
+          if (kpi.target_direction === "lower") {
+            return clampProgress(cur === 0 ? 100 : Math.round((tgt / cur) * 100));
+          }
+          return clampProgress(tgt === 0 ? 0 : Math.round((cur / tgt) * 100));
+        })()
       : 0;
 
   return (
     <Modal title={`Update Progress — ${kpi.kpi_name}`} onClose={onClose}>
       <form onSubmit={handleSave} className="space-y-4">
         {error && <p className="text-xs text-red-400">{error}</p>}
+
+        {!isYesNo && recentHistory.length >= 1 && (() => {
+          const last = recentHistory[0]!;
+          const when = new Date(last.created_at).toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+          });
+          return (
+            <div className="rounded-lg border border-app-border bg-app-panel/50 px-3 py-2 text-xs text-app-muted">
+              Last recorded:{" "}
+              <span className="font-semibold text-white">
+                {formatValue(last.recorded_value, kpi.unit_label)}
+              </span>
+              <span className="ml-2">on {when}</span>
+            </div>
+          );
+        })()}
 
         {!isYesNo && (
           <div>
@@ -656,16 +716,45 @@ function UpdateProgressModal({
 }
 
 // ---------------------------------------------------------------------------
+// Staleness helpers
+// ---------------------------------------------------------------------------
+
+const PERIOD_DAYS: Record<string, number> = {
+  Weekly: 7,
+  Monthly: 30,
+  Quarterly: 90,
+  Yearly: 365,
+  Custom: 30,
+};
+
+function getKpiStaleness(
+  kpi: MemberKpiRow,
+  recentHistory: KpiHistoryRow[],
+): { overdue: boolean; daysSince: number; dueDays: number } {
+  const dueDays = PERIOD_DAYS[kpi.time_period] ?? 30;
+  // Use most recent history entry if loaded, fall back to updated_at
+  const lastUpdateStr = recentHistory.length > 0
+    ? recentHistory[0]!.created_at
+    : kpi.updated_at;
+  const daysSince = Math.floor(
+    (Date.now() - new Date(lastUpdateStr).getTime()) / (1000 * 60 * 60 * 24),
+  );
+  return { overdue: daysSince >= dueDays, daysSince, dueDays };
+}
+
+// ---------------------------------------------------------------------------
 // KPI Card
 // ---------------------------------------------------------------------------
 
 function KpiCard({
   kpi,
+  recentHistory,
   onEdit,
   onDelete,
   onUpdateProgress,
 }: {
   kpi: MemberKpiRow;
+  recentHistory: KpiHistoryRow[];
   onEdit: (kpi: MemberKpiRow) => void;
   onDelete: (kpi: MemberKpiRow) => void;
   onUpdateProgress: (kpi: MemberKpiRow) => void;
@@ -673,9 +762,15 @@ function KpiCard({
   const progress = computeKpiProgress(kpi);
   const displayProgress = Math.round(progress * 10) / 10;
   const isYesNo = kpi.goal_type === "Yes / No";
+  const { overdue, daysSince, dueDays } = getKpiStaleness(kpi, recentHistory);
 
   return (
-    <div className="flex flex-col gap-3 rounded-xl border border-app-border bg-black p-4 transition hover:border-brand/40">
+    <div
+      className="flex flex-col gap-3 rounded-xl border bg-black p-4 transition"
+      style={{
+        borderColor: overdue ? "rgba(217,119,6,0.6)" : undefined,
+      }}
+    >
       {/* Header */}
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
@@ -693,13 +788,23 @@ function KpiCard({
 
       {/* Goal vs Current */}
       {!isYesNo && (
-        <div className="flex items-center gap-3 text-xs text-app-muted">
+        <div className="flex items-center gap-2 text-xs text-app-muted">
           <span>
             <span className="font-semibold text-white">
               {formatValue(kpi.current_value, kpi.unit_label)}
             </span>
             {" / "}
             {formatValue(kpi.target_value, kpi.unit_label)}
+          </span>
+          <span
+            className="rounded px-1.5 py-0.5 text-[10px] font-semibold"
+            title={kpi.target_direction === "lower" ? "Lower is better" : "Higher is better"}
+            style={{
+              backgroundColor: kpi.target_direction === "lower" ? "rgba(59,130,246,0.15)" : "rgba(16,185,129,0.15)",
+              color: kpi.target_direction === "lower" ? "#60a5fa" : "#34d399",
+            }}
+          >
+            {kpi.target_direction === "lower" ? "↓ lower" : "↑ higher"}
           </span>
           <span className="rounded bg-app-border/50 px-1.5 py-0.5 text-[10px]">
             {kpi.time_period}
@@ -716,6 +821,32 @@ function KpiCard({
           </span>
         </div>
       )}
+
+      {/* Trend indicator — shown after ≥2 history entries exist */}
+      {!isYesNo && recentHistory.length >= 2 && (() => {
+        const trend = computeKpiTrend(kpi.target_direction, kpi.goal_type, recentHistory);
+        if (trend === "none") return null;
+        const prevValue = recentHistory[1]?.recorded_value;
+        const prevFormatted = formatValue(prevValue ?? null, kpi.unit_label);
+        const cfg = {
+          improving: { icon: "↑", label: "Improving", bg: "rgba(16,185,129,0.12)", color: "#34d399" },
+          declining: { icon: "↓", label: "Declining", bg: "rgba(239,68,68,0.12)", color: "#f87171" },
+          flat:      { icon: "→", label: "No change", bg: "rgba(100,116,139,0.15)", color: "#94a3b8" },
+        }[trend];
+        return (
+          <div className="flex items-center gap-2 text-[11px]">
+            <span
+              className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-semibold"
+              style={{ backgroundColor: cfg.bg, color: cfg.color }}
+            >
+              {cfg.icon} {cfg.label}
+            </span>
+            <span className="text-app-muted">
+              prev: <span className="text-white">{prevFormatted}</span>
+            </span>
+          </div>
+        );
+      })()}
 
       {/* Progress bar */}
       <div className="space-y-1">
@@ -748,6 +879,22 @@ function KpiCard({
             </p>
           )}
         </div>
+      )}
+
+      {/* Overdue warning */}
+      {overdue && (
+        <button
+          type="button"
+          onClick={() => onUpdateProgress(kpi)}
+          className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs transition hover:opacity-80"
+          style={{ backgroundColor: "rgba(217,119,6,0.12)", color: "#fbbf24" }}
+        >
+          <span className="text-sm leading-none">⚠</span>
+          <span className="font-semibold">Update needed</span>
+          <span className="text-amber-500/70">
+            — {daysSince}d since last update ({dueDays}d period)
+          </span>
+        </button>
       )}
 
       {/* Actions */}
@@ -795,11 +942,12 @@ function MemberSummaryPanel({
   const complete = kpis.filter((k) => k.status === "Complete").length;
   const paused = kpis.filter((k) => k.status === "Paused").length;
 
-  const progressValues = kpis.map(computeKpiProgress);
   const overallProgress =
     kpis.length === 0
       ? 0
-      : Math.round(progressValues.reduce((a, b) => a + b, 0) / kpis.length);
+      : Math.round(
+          kpis.map((k) => Math.min(100, computeKpiProgress(k))).reduce((a, b) => a + b, 0) / kpis.length,
+        );
 
   const initials = getInitials(person.full_name);
   const accentColor = person.accent_color ?? "#e72027";
@@ -939,6 +1087,8 @@ export function MemberKpiTrackersClient({
     [kpis, selectedMemberName],
   );
 
+  const [kpiHistory, setKpiHistory] = useState<Record<string, KpiHistoryRow[]>>({});
+
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<SalesSyncResult | null>(null);
 
@@ -992,17 +1142,33 @@ export function MemberKpiTrackersClient({
     setKpis((prev) => prev.filter((k) => k.id !== deletingKpi.id));
   }
 
+  async function handleOpenUpdateProgress(kpi: MemberKpiRow) {
+    setProgressKpi(kpi);
+    if (!kpiHistory[kpi.id]) {
+      try {
+        const history = await fetchRecentKpiHistory(kpi.id, 10);
+        setKpiHistory((prev) => ({ ...prev, [kpi.id]: history }));
+      } catch {
+        // non-fatal — modal still works without history
+      }
+    }
+  }
+
   async function handleUpdateProgress(
     currentValue: number | null,
     status: string,
   ) {
     if (!progressKpi) return;
-    const updated = await updateMemberKpiProgress(
-      progressKpi.id,
-      currentValue,
-      status,
-    );
+    const id = progressKpi.id;
+    const updated = await updateMemberKpiProgress(id, currentValue, status);
     setKpis((prev) => prev.map((k) => (k.id === updated.id ? updated : k)));
+    // Refresh history so the trend pill updates immediately
+    try {
+      const fresh = await fetchRecentKpiHistory(id, 10);
+      setKpiHistory((prev) => ({ ...prev, [id]: fresh }));
+    } catch {
+      // non-fatal
+    }
   }
 
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -1173,9 +1339,10 @@ export function MemberKpiTrackersClient({
                         <KpiCard
                           key={kpi.id}
                           kpi={kpi}
+                          recentHistory={kpiHistory[kpi.id] ?? []}
                           onEdit={(k) => setEditingKpi(k)}
                           onDelete={(k) => setDeletingKpi(k)}
-                          onUpdateProgress={(k) => setProgressKpi(k)}
+                          onUpdateProgress={handleOpenUpdateProgress}
                         />
                       ))}
                     </div>
@@ -1222,6 +1389,7 @@ export function MemberKpiTrackersClient({
       {progressKpi && (
         <UpdateProgressModal
           kpi={progressKpi}
+          recentHistory={kpiHistory[progressKpi.id] ?? []}
           onSave={handleUpdateProgress}
           onClose={() => setProgressKpi(null)}
         />

@@ -1,3 +1,6 @@
+export const TARGET_DIRECTIONS = ["higher", "lower"] as const;
+export type TargetDirection = (typeof TARGET_DIRECTIONS)[number];
+
 export const GOAL_TYPES = [
   "Number",
   "Percentage",
@@ -33,6 +36,7 @@ export interface MemberKpiRow {
   kpi_name: string;
   description: string | null;
   goal_type: string;
+  target_direction: string;
   target_value: number | null;
   current_value: number | null;
   unit_label: string | null;
@@ -51,6 +55,7 @@ export interface MemberKpiDraft {
   kpi_name: string;
   description?: string | null;
   goal_type: string;
+  target_direction?: string;
   target_value?: number | null;
   current_value?: number | null;
   unit_label?: string | null;
@@ -69,6 +74,17 @@ export interface MemberPerson {
   accent_color?: string | null;
   is_active: boolean;
 }
+
+export interface KpiHistoryRow {
+  id: string;
+  kpi_id: string;
+  recorded_value: number | null;
+  status: string;
+  source: string;
+  created_at: string;
+}
+
+export type KpiTrend = "improving" | "declining" | "flat" | "none";
 
 export interface MemberKpiInitialData {
   people: MemberPerson[];
