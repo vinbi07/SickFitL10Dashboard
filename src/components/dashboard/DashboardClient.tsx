@@ -16,6 +16,7 @@ import { logoutAction } from "@/app/login/actions";
 import { updateShopifyTargetAction } from "@/app/dashboard/actions";
 import { MeetingTimer } from "@/components/meeting/MeetingTimer";
 import { PresentationSlider } from "@/components/meeting/PresentationSlider";
+import { MemberKpiDashboardSegment } from "@/components/member-kpi-trackers/MemberKpiDashboardSegment";
 import {
   CommentsSkeleton,
   DashboardWidgetSkeleton,
@@ -57,6 +58,7 @@ const CORE_SEGMENT_KEYS = [
   "Task Pulse + Calendar",
   "IDS",
   "Conclude",
+  "Member KPIs",
 ];
 
 const SICKFIT_SITE_LINKS = [
@@ -7346,6 +7348,12 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
           >
             Sales Tracker
           </Link>
+          <Link
+            href="/member-kpi-trackers"
+            className="rounded-lg border border-app-border px-3 py-2 text-sm font-semibold text-app-muted transition hover:border-[#e72027] hover:bg-[#e72027]/10 hover:text-brand"
+          >
+            Member KPIs
+          </Link>
           <span className="rounded border border-app-border px-2 py-1 text-xs text-white">
             Meeting Health: {meetingHealth.score}% ({meetingHealth.grade})
           </span>
@@ -7576,6 +7584,9 @@ export function DashboardClient({ initialData }: DashboardClientProps) {
           {currentSegment === "Task Pulse + Calendar" && todoTimelineSection()}
           {currentSegment === "IDS" && issuesSection()}
           {currentSegment === "Conclude" && concludeSection()}
+          {currentSegment === "Member KPIs" && (
+            <MemberKpiDashboardSegment people={data.people} />
+          )}
           {!CORE_SEGMENT_KEYS.includes(currentSegment) &&
             customSegmentSection(currentFormatSegment.label)}
         </PresentationSlider>
