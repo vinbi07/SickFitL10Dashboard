@@ -73,6 +73,7 @@ export interface MemberPerson {
   role: string;
   accent_color?: string | null;
   is_active: boolean;
+  presentation_note?: string | null;
 }
 
 export interface KpiHistoryRow {

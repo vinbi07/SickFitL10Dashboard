@@ -18,6 +18,15 @@ async function recordKpiHistory(
   if (error) throw error;
 }
 
+export async function savePresentationNote(personId: string, note: string): Promise<void> {
+  const client = createSupabaseBrowserClient();
+  const { error } = await client
+    .from("people")
+    .update({ presentation_note: note })
+    .eq("id", personId);
+  if (error) throw error;
+}
+
 export async function fetchAllMemberKpis(): Promise<MemberKpiRow[]> {
   const client = createSupabaseBrowserClient();
   const { data, error } = await client

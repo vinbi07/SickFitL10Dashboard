@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PresentationSlider } from "@/components/meeting/PresentationSlider";
-import { fetchMemberTasks } from "@/lib/member-kpi/client";
+import { fetchMemberTasks, savePresentationNote } from "@/lib/member-kpi/client";
 import { buildMemberKpiSlides } from "@/lib/member-kpi/buildMemberKpiSlides";
 import { MemberKpiSlideRenderer } from "./MemberKpiSlideRenderer";
 import type { MemberPerson, MemberKpiRow } from "@/lib/member-kpi/types";
@@ -24,7 +24,8 @@ export function MemberKpiPresentation({ person, kpis, onExit }: Props) {
   const [slideIndex, setSlideIndex] = useState(0);
   const [tasks, setTasks] = useState<TaskSlideItem[]>([]);
   const [loadingTasks, setLoadingTasks] = useState(true);
-  const [presentationNote, setPresentationNote] = useState("");
+  const [presentationNote, setPresentationNote] = useState(person.presentation_note ?? "");
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Fetch tasks for this member on mount / member change
   useEffect(() => {
@@ -72,6 +73,16 @@ export function MemberKpiPresentation({ person, kpis, onExit }: Props) {
   const currentSlide = slides[clampedIndex];
   const accent = person.accent_color ?? "#e72027";
 
+  function handlePresentationNoteChange(note: string) {
+    setPresentationNote(note);
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      savePresentationNote(person.id, note).catch((err) =>
+        console.warn("[presentation_note] save failed:", err),
+      );
+    }, 800);
+  }
+
   return (
     <div className="flex flex-col">
       {/* Presentation header */}
@@ -114,7 +125,7 @@ export function MemberKpiPresentation({ person, kpis, onExit }: Props) {
         {currentSlide ? (
           <MemberKpiSlideRenderer
             slide={currentSlide}
-            onPresentationNoteChange={setPresentationNote}
+            onPresentationNoteChange={handlePresentationNoteChange}
             loadingTasks={loadingTasks}
           />
         ) : null}

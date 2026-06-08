@@ -7,7 +7,7 @@ export async function getInitialMemberKpiData(): Promise<MemberKpiInitialData> {
   const [peopleResult, kpisResult] = await Promise.all([
     supabase
       .from("people")
-      .select("id, full_name, role, accent_color, is_active")
+      .select("id, full_name, role, accent_color, is_active, presentation_note")
       .eq("is_active", true)
       .order("full_name", { ascending: true }),
     supabase

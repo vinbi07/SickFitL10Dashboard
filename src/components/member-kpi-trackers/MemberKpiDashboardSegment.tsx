@@ -1,8 +1,8 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
-import { useEffect, useMemo, useState } from "react";
-import { fetchAllMemberKpis, fetchMemberTasks } from "@/lib/member-kpi/client";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { fetchAllMemberKpis, fetchMemberTasks, savePresentationNote } from "@/lib/member-kpi/client";
 import { buildMemberKpiSlides } from "@/lib/member-kpi/buildMemberKpiSlides";
 import { MemberKpiSlideRenderer } from "./MemberKpiSlideRenderer";
 import type { MemberKpiRow } from "@/lib/member-kpi/types";
@@ -40,6 +40,7 @@ export function MemberKpiDashboardSegment({ people }: Props) {
   const [presentationNote, setPresentationNote] = useState("");
   const [loadingKpis, setLoadingKpis] = useState(true);
   const [loadingTasks, setLoadingTasks] = useState(false);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Fetch all KPIs once
   useEffect(() => {
@@ -60,10 +61,12 @@ export function MemberKpiDashboardSegment({ people }: Props) {
       .finally(() => setLoadingTasks(false));
   }, [selectedName]);
 
-  // Reset slide when member changes
+  // Reset slide and seed note when member changes
   useEffect(() => {
     setSlideIndex(0);
-  }, [selectedName]);
+    const person = activePeople.find((p) => p.full_name === selectedName);
+    setPresentationNote(person?.presentation_note ?? "");
+  }, [selectedName, activePeople]);
 
   const selectedPerson = useMemo(
     () => activePeople.find((p) => p.full_name === selectedName) ?? null,
@@ -85,6 +88,18 @@ export function MemberKpiDashboardSegment({ people }: Props) {
 
   const clampedIndex = Math.min(slideIndex, Math.max(0, slides.length - 1));
   const currentSlide = slides[clampedIndex];
+
+  function handlePresentationNoteChange(note: string) {
+    setPresentationNote(note);
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    const person = activePeople.find((p) => p.full_name === selectedName);
+    if (!person) return;
+    saveTimerRef.current = setTimeout(() => {
+      savePresentationNote(person.id, note).catch((err) =>
+        console.warn("[presentation_note] save failed:", err),
+      );
+    }, 800);
+  }
 
   if (activePeople.length === 0) {
     return (
@@ -166,7 +181,7 @@ export function MemberKpiDashboardSegment({ people }: Props) {
           >
             <MemberKpiSlideRenderer
               slide={currentSlide}
-              onPresentationNoteChange={setPresentationNote}
+              onPresentationNoteChange={handlePresentationNoteChange}
               loadingTasks={loadingTasks}
             />
           </motion.div>

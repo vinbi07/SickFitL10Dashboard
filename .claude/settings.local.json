@@ -2,11 +2,15 @@
   "permissions": {
     "allow": [
       "Bash(claude mcp *)",
-      "PowerShell(claude mcp add --scope project --transport http supabase \"https://mcp.supabase.com/mcp\")"
+      "PowerShell(claude mcp add --scope project --transport http supabase \"https://mcp.supabase.com/mcp\")",
+      "mcp__supabase__list_projects",
+      "mcp__supabase__list_tables",
+      "Skill(run)",
+      "Skill(run:*)"
     ]
   },
+  "enableAllProjectMcpServers": true,
   "enabledMcpjsonServers": [
     "supabase"
-  ],
-  "enableAllProjectMcpServers": true
+  ]
 }
