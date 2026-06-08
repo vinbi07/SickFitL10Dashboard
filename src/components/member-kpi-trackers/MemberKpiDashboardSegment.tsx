@@ -15,6 +15,7 @@ interface PersonLike {
   role: string;
   accent_color: string | null;
   is_active: boolean;
+  presentation_note?: string | null;
 }
 
 interface Props {
